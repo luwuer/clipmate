@@ -31,8 +31,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>ClipMate</string>
   <key>CFBundleDisplayName</key><string>ClipMate</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleVersion</key><string>0.2.0</string>
   <key>LSUIElement</key><true/>
   <key>CFBundleIconFile</key><string>icon</string>
   <key>NSHighResolutionCapable</key><true/>

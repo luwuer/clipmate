@@ -2,55 +2,128 @@
 
 一个极简的 macOS 剪贴板历史工具，灵感来自 CleanClip。
 
-- **F2** 唤起最近复制内容的面板，方向键选择，Enter 粘贴回当前应用，Esc 关闭
-- 记录 **文本** 与 **图片**
-- 支持 **搜索过滤**
-- 点击其他位置自动隐藏面板
+- **F2**（可配置）唤起面板，方向键选择，Enter 粘贴回当前应用，Esc 关闭
+- 记录 **文本** 与 **图片**，支持 **搜索过滤**
+- **历史持久化**：重启后历史不丢失（JSONL 落盘，图片仅内存）
+- **收藏/置顶**：⌘P pin 重要条目，永不被淘汰
+- **多选批量**：Shift/⌘ 多选，批量拼接粘贴、批量删除
+- **主题切换**：dark / light，菜单栏一键切换
+- **开机自启**：菜单栏勾选即可
+- 圆角悬浮面板，跟随光标位置弹出，可拖拽移动
 
 ## 效果预览
 
-按 F2 弹出的面板（在当前活动窗口上方）：
-
 ```
-┌──────────────────────────────────┐
+╭──────────────────────────────────╮
+│ ClipMate                          │  ← 可拖拽标题栏
 │ 搜索剪贴板历史…              ⌫   │  ← 搜索框 + 清空
 ├──────────────────────────────────┤
-│ https://example.com/api/v1/...   │  ← 最新，蓝色高亮
-│                              ✕   │
+│ 📌 常用地址（置顶）                │
+│ ✓ https://example.com/api/v1/... │  ← 多选中的条目带 ✓
 │ 订单号 #2026-0818-0001            │
-│ 金额 ¥1,234.56 …                  │
-│                              ✕   │
 │ hello clipmate 第一条              │
-│                              ✕   │
 ├──────────────────────────────────┤
-│  ↑↓ 选择  ⏎ 粘贴  Esc 关闭  F2 切换 │
-└──────────────────────────────────┘
+│ ↑↓ 选择  ⇧/⌘ 多选  ⏎ 粘贴  ⌘P 置顶 │  ← 快捷键提示栏
+╰──────────────────────────────────╯
 ```
 
 ## 技术栈
 
-- **Tauri 2** + **Rust**：后端逻辑、全局热键、剪贴板监听、Cmd+V 模拟
-- **vanilla HTML/CSS/JS**：前端面板，无 Node 构建链，单文件即可运行
-- 依赖：arboard（剪贴板读写）、core-graphics（CGEvent）、png、objc2（NSPasteboard changeCount）、tauri-plugin-global-shortcut
+- **Tauri 2** + **Rust**：后端逻辑、全局热键、剪贴板监听、Cmd+V 模拟、NSPanel 焦点模型
+- **Vue 3 + Vite**：前端面板（ui-v3/）
+- 依赖：arboard（剪贴板读写）、core-graphics（CGEvent）、png、objc2（NSStatusItem / NSPanel）、tauri-plugin-global-shortcut
 
-## 编译
-
-需要 [Rust 工具链](https://rustup.rs)：
+## 快速开始
 
 ```bash
-cd clipmate/src-tauri
-cargo build --release
+# 开发构建（秒级增量，自动签名 + 组装 .app）
+bash scripts/dev-build.sh --run
+
+# 发布构建（见下文「发布打包」）
 ```
 
-## 打包成 .app
+首次构建前端需 `npm install`（dev-build.sh 会自动处理）。
+
+## 键盘操作
+
+| 按键 | 动作 |
+| --- | --- |
+| **F2**（可配置） | 显示/隐藏面板 |
+| **↑ / ↓** | 移动高亮 |
+| **Shift+↑ / ↓** | 从锚点扩展连续多选 |
+| **⌘+↑ / ↓** | 切换当前条目的选中状态 |
+| **Enter** | 无多选：粘贴当前条目；有多选：按列表顺序拼接批量粘贴 |
+| **Delete / Backspace** | 无多选：删除当前条目；有多选：批量删除（搜索框聚焦时 Backspace 只删文本） |
+| **⌘P** | 置顶/取消置顶当前条目 |
+| **Esc** | 先清除多选；无多选时关闭面板 |
+| **输入文字** | 实时过滤历史（文本内容） |
+
+## 菜单栏
+
+菜单栏图标常驻，菜单项：
+
+- **显示面板** — 等价于按热键
+- **申请辅助权限并打开设置** — 触发系统授权请求 + 打开设置页
+- **切换主题** — dark ↔ light，立即生效并持久化
+- **开机自启** — 勾选后写入 LaunchAgent，登录时自动启动
+- **退出** — 退出前自动落盘历史
+
+## 配置（settings.json）
+
+配置文件路径：`~/Library/Application Support/com.mdy.clipmate/settings.json`
+首次启动自动生成，缺失或非法字段自动回退默认值。
+
+| 字段 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `hotkey` | 字符串 | `"F2"` | 全局唤起热键，`global-hotkey` 语法，如 `"CommandOrControl+Shift+V"` |
+| `theme` | `"dark"` / `"light"` | `"dark"` | 主题；菜单栏切换会自动写回 |
+
+历史数据：同目录 `history.jsonl`（文本条目，图片仅保留在内存中）。
+
+## 首次使用：授权
+
+粘贴到其他应用需要 macOS **辅助功能** 权限。ClipMate 会在启动时自动请求一次（系统弹窗）。如果设置列表里找不到 ClipMate（ad-hoc 重签名会导致旧条目失效）：
+
+**方式 A（推荐，根治）**：使用固定签名身份构建，授权一次永久有效：
 
 ```bash
-cd clipmate/src-tauri
-npx -y @tauri-apps/cli@2 build
-# 补上 LSUIElement（无 Dock 图标）和 ad-hoc 签名
+bash scripts/setup-codesign.sh   # 生成自签证书 CN=ClipMate Dev
+# 按脚本输出的 security import 命令导入钥匙串，之后 dev-build 自动使用该身份
+```
+
+**方式 B**：系统设置 → 隐私与安全性 → 辅助功能 → 列表底部 **+** → 手动添加 ClipMate.app → 勾选。
+
+**方式 C**：重置后重启触发重新弹窗：
+
+```bash
+tccutil reset Accessibility com.mdy.clipmate
+```
+
+菜单栏「申请辅助权限并打开设置」会同时触发系统请求并打开设置页（兼容 macOS 13 与 15 路径）。
+
+## 行为细节
+
+- **去重**：复制相同内容不产生重复条目，命中的条目提升到最前
+- **持久化**：文本历史 JSONL 落盘（2s 防抖），退出时 final flush；图片仅内存
+- **置顶保护**：达到 300 条上限时，置顶条目永不淘汰，非置顶保留最新
+- **过滤**：搜索时输入「图片」「image」「img」「png」可筛选图片
+- **限制**：单条文本最大 2 MB，单张图片最大 8 MB，最多保留 300 条
+- **不记录**：剪贴板上的「文件」、「空白内容」会跳过
+- **面板定位**：优先跟随文本插入点（caret），其次焦点元素，最后鼠标位置
+- **测试模式**：`CLIPMATE_TEST_CENTER=1` 环境变量让面板固定在主屏中央（便于截图/调试）
+
+## 发布打包
+
+```bash
+cd src-tauri
+cargo build --release
+npx -y @tauri-apps/cli@2 build   # 必须锁 v2（v3 schema 不兼容）
+
+# 确认 LSUIElement + 签名（固定身份 "ClipMate Dev"，无则 ad-hoc 回退）
 /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" \
-  target/release/bundle/macos/ClipMate.app/Contents/Info.plist
-codesign -f -s - --deep target/release/bundle/macos/ClipMate.app
+  target/release/bundle/macos/ClipMate.app/Contents/Info.plist 2>/dev/null || true
+codesign -f -s "ClipMate Dev" --deep target/release/bundle/macos/ClipMate.app \
+  || codesign -f -s - --deep target/release/bundle/macos/ClipMate.app
 
 # 制作 dmg
 cd target/release/bundle
@@ -61,92 +134,28 @@ hdiutil create -volname "ClipMate" -srcfolder dmg_staging -ov -format UDZO ClipM
 rm -rf dmg_staging
 ```
 
-产物：
-- `clipmate/dist/ClipMate.app` — 双击运行（约 5.6 MB）
-- `clipmate/dist/ClipMate.dmg` — 标准安装镜像（约 2.7 MB，含「拖到 Applications」引导）
-
-## 运行
-
-```bash
-# 方式 1：双击 ClipMate.app
-open dist/ClipMate.app
-
-# 方式 2：命令行启动（后台常驻，F2 唤起）
-open dist/ClipMate.app
-
-# 调试用：启动后直接显示面板
-open dist/ClipMate.app --args --show
-```
-
-启动后菜单栏不会出现图标（应用为 Accessory 策略），不抢焦点。
-后台进程一直运行，直到手动退出：
-
-```bash
-pkill -f clipmate
-```
-
-## 首次使用：授权
-
-粘贴到其他应用需要 macOS **辅助功能** 权限。ClipMate 会在启动时自动请求一次（macOS 系统弹窗），点「打开系统设置」即可。如果在设置里找不到 ClipMate 入口（之前拒过/列表为空），用以下任一方式：
-
-**方式 A（推荐）**：系统设置 → 隐私与安全性 → 辅助功能 → 滚动到列表底部 → 点 **+** → 选择 ClipMate.app（路径 `/Users/mdy/workspace_test/repos/clipmate/dist/ClipMate.app`）→ 勾选
-
-**方式 B**：终端执行后重启 ClipMate，弹窗会自动重新出现
-
-```bash
-tccutil reset Accessibility com.mdy.clipmate
-```
-
-菜单栏图标 → "打开设置" 按钮也会同时尝试触发系统请求 + 打开两个版本的设置 URL（兼容 macOS 13 与 macOS 15）。
-4. 勾选 **ClipMate**
-5. 重启 ClipMate 生效
-
-> 如果你希望 ClipMate **开机自启**，把 `clipmate` 复制到 `~/Library/LaunchAgents/` 或用系统设置 → 通用 → 登录项添加。
-
-## 键盘操作
-
-| 按键 | 动作 |
-| --- | --- |
-| **F2** | 显示/隐藏面板 |
-| **↑ / ↓** | 在历史中移动选择 |
-| **Enter** | 选中并粘贴到当前应用 |
-| **Esc** | 关闭面板 |
-| **输入文字** | 实时过滤历史（文本内容） |
-| 鼠标悬停 + **✕** | 删除单条记录 |
-| 顶部 **⌫** 按钮 | 清空全部历史 |
-
-## 行为细节
-
-- **去重**：连续复制相同内容不会产生重复条目
-- **顺序**：选中并粘贴的条目会移到最前（按使用频率排序）
-- **过滤**：搜索时输入「图片」「image」「img」「png」可筛选图片
-- **限制**：单条文本最大 2 MB，单张图片最大 8 MB，最多保留 300 条
-- **不记录**：剪贴板上的「文件」、「空白内容」会跳过
-- **不持久化**：历史仅保留在内存中，重启后清空（按设计取舍，保持简单）
-
-## F2 冲突说明
-
-macOS 默认把 F1–F12 用作亮度/音量等系统快捷键，按 F2 可能无反应。
-在「系统设置 → 键盘 → 键盘快捷键 → 功能键」中勾选「将 F1、F2 等键用作标准功能键」即可。
-
-或者编辑 `src-tauri/src/main.rs` 顶部的 `HOTKEY` 常量改为其他组合（支持 `Cmd+Shift+V` 等，需要用 `global-hotkey` crate 的语法，例如 `"CommandOrControl+Shift+V"`）。
+产物集中到 `dist/`：`ClipMate.app` + `ClipMate.dmg`（含「拖到 Applications」引导）。
 
 ## 项目结构
 
 ```
 clipmate/
 ├── src-tauri/
-│   ├── Cargo.toml
-│   ├── tauri.conf.json
-│   ├── build.rs
-│   ├── capabilities/default.json
-│   ├── icons/icon.png
-│   └── src/main.rs        # 全部 Rust 逻辑（剪贴板、热键、命令、CGEvent）
-├── ui/
-│   ├── index.html
-│   ├── style.css
-│   └── app.js             # 全部前端逻辑（vanilla JS）
-└── README.md
+│   ├── Cargo.toml / tauri.conf.json / build.rs
+│   └── src/
+│       ├── main.rs        # 薄入口、settings.json 读写
+│       ├── model.rs       # 数据模型 + 去重/上限纯逻辑（含单测）
+│       ├── clipboard.rs   # NSPasteboard 轮询捕获
+│       ├── paste.rs       # Cmd+V 模拟 + AX 权限
+│       ├── panel.rs       # NSPanel 焦点模型 + caret 定位
+│       ├── commands.rs    # Tauri commands
+│       ├── storage.rs     # JSONL 持久化
+│       ├── menubar.rs     # NSStatusItem 菜单
+│       └── autostart.rs   # LaunchAgent 开机自启
+├── ui-v3/                 # Vue 3 + Vite 前端（App.vue + style.css）
+├── ui/                    # 旧 vanilla JS 前端（保留参考）
+├── scripts/
+│   ├── dev-build.sh       # 秒级增量构建 + 签名
+│   └── setup-codesign.sh  # 生成固定签名证书
+└── CHANGELOG.md
 ```
-
-后端单文件 ~450 行；前端 ~120 行 JS + 130 行 CSS，刻意保持精简。
