@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::clipboard::pasteboard_change_count;
 use crate::model::{AppState, ClipboardItem, ItemDto, ItemKind, decode_png};
-use crate::panel::panel_hide_ns;
+use crate::panel::{panel_drag_anchor, panel_drag_apply, panel_hide_ns};
 use crate::paste::{activate_app, ax_trusted, ensure_ax, frontmost_pid, paste_cmd_v};
 use crate::storage;
 
@@ -177,6 +177,35 @@ pub(crate) fn hide_panel(app: AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         panel_hide_ns(&win);
     }
+}
+
+// ---------- 标题栏拖拽（前端 mousedown/mousemove/mouseup 手工追踪） ----------
+
+/// 拖拽开始：记录鼠标与窗口 origin 的锚点（Web 屏幕坐标 → AppKit 坐标在 panel.rs 转换）
+#[tauri::command]
+pub(crate) fn drag_begin(app: AppHandle, state: State<'_, AppState>, x: f64, y: f64) {
+    if let Some(win) = app.get_webview_window("main") {
+        if let Some(anchor) = panel_drag_anchor(&win, x, y) {
+            *state.drag_state.lock().unwrap() = Some(anchor);
+            state.dragging.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+/// 拖拽移动：按锚点 + 当前鼠标位置 setFrameOrigin（前端已 rAF 节流）
+#[tauri::command]
+pub(crate) fn drag_move(app: AppHandle, state: State<'_, AppState>, x: f64, y: f64) {
+    let anchor = *state.drag_state.lock().unwrap();
+    if let (Some(win), Some(anchor)) = (app.get_webview_window("main"), anchor) {
+        panel_drag_apply(&win, x, y, anchor);
+    }
+}
+
+/// 拖拽结束：清除拖拽标记（恢复 blur-hide / 点击外部隐藏）
+#[tauri::command]
+pub(crate) fn drag_end(state: State<'_, AppState>) {
+    state.dragging.store(false, Ordering::SeqCst);
+    *state.drag_state.lock().unwrap() = None;
 }
 
 #[tauri::command]

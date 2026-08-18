@@ -80,6 +80,9 @@ fn main() {
             commands::clear_history,
             commands::toggle_pin,
             commands::hide_panel,
+            commands::drag_begin,
+            commands::drag_move,
+            commands::drag_end,
             commands::is_ax_trusted,
             commands::open_accessibility_settings,
             commands::copy_tccutil_command
@@ -127,6 +130,10 @@ fn main() {
                 win.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
                         let state = win_clone.state::<AppState>();
+                        // 拖拽期间失焦不隐藏（用户正在按住拖动面板）
+                        if state.dragging.load(Ordering::SeqCst) {
+                            return;
+                        }
                         let recently_shown = state
                             .shown_at
                             .lock()

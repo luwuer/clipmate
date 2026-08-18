@@ -4,7 +4,7 @@
 //! - png 编解码与 DTO 转换
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,6 +51,10 @@ pub struct AppState {
     pub(crate) shown_at: Mutex<Option<std::time::Instant>>,
     /// 唤起面板前处于前台的 App，作为 Cmd+V 的投递目标
     pub(crate) prev_front_pid: AtomicI32,
+    /// 标题栏拖拽进行中（拖拽期间禁用 blur-hide / Focused(false) 自动隐藏）
+    pub(crate) dragging: AtomicBool,
+    /// 拖拽起点：(鼠标 x, 鼠标 y, 窗口 origin x, 窗口 origin y)，均为 AppKit 坐标（bottom-left）
+    pub(crate) drag_state: Mutex<Option<(f64, f64, f64, f64)>>,
 }
 
 impl AppState {
@@ -61,6 +65,8 @@ impl AppState {
             last_change_count: AtomicI64::new(i64::MIN),
             shown_at: Mutex::new(None),
             prev_front_pid: AtomicI32::new(0),
+            dragging: AtomicBool::new(false),
+            drag_state: Mutex::new(None),
         }
     }
 }

@@ -39,11 +39,33 @@ extern "C" {
         attribute: core_foundation::string::CFStringRef,
         value: *mut core_foundation::base::CFTypeRef,
     ) -> i32;
+    fn AXUIElementCopyParameterizedAttributeValue(
+        element: *mut AnyObject,
+        attribute: core_foundation::string::CFStringRef,
+        parameter: core_foundation::base::CFTypeRef,
+        value: *mut core_foundation::base::CFTypeRef,
+    ) -> i32;
+    fn AXValueCreate(
+        the_type: u32,
+        value_ptr: *const c_void,
+    ) -> core_foundation::base::CFTypeRef;
     fn AXValueGetValue(
         value: *const AnyObject,
         the_type: u32,
         value_ptr: *mut c_void,
     ) -> bool;
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFRelease(cf: *const c_void);
+}
+
+/// CFRange（kAXValueCFRangeType = 4 对应的载荷），CFIndex = long = isize
+#[repr(C)]
+struct AXCFRange {
+    location: isize,
+    length: isize,
 }
 
 /// 取「前台应用焦点元素」的 frame（即输入光标所在控件），AX 坐标系为
@@ -100,6 +122,105 @@ pub(crate) fn focused_element_frame() -> Option<(NSPoint, objc2_foundation::NSSi
         Some((
             NSPoint { x: pt.x, y: pt.y },
             objc2_foundation::NSSize { width: sz.width, height: sz.height },
+        ))
+    }
+}
+
+/// 取「插入点（caret）」的精确屏幕 frame，比 focused_element_frame 更细：
+/// 直接定位到文本框内光标所在位置，而不是整个输入控件的外框。
+///
+/// 链路（全部 AX 只读）：
+///   systemWide → AXFocusedUIElement
+///   → AXSelectedTextRange（AXValue CFRange，光标=空选区即插入点）
+///   → AXBoundsForRange（parameterized attribute，参数为上述 CFRange 的 AXValue）
+///   → 返回该范围的屏幕 bounds（AXValue CGRect，空选区时就是 caret 的细条矩形）
+///
+/// 坐标系说明：AX 返回的是**全局 top-left origin** 坐标（y 向下增长）；
+/// AppKit（NSScreen/NSWindow）用 **bottom-left origin**（y 向上增长）。
+/// 本函数返回原始 AX 坐标，y 轴翻转统一由调用方完成：
+///   appkit_y = 主屏高 - ax_y - rect_height
+/// （多屏环境下 AX/CG 全局坐标的原点就是主屏左上角，故用主屏高翻转即可。）
+///
+/// 任一步失败返回 None（调用方依次回退：元素 frame → 鼠标位置）。
+pub(crate) fn caret_precise_frame() -> Option<(NSPoint, objc2_foundation::NSSize)> {
+    use core_foundation::base::{CFTypeRef, TCFType};
+    use core_foundation::string::CFString;
+
+    const K_AX_VALUE_CGRECT_TYPE: u32 = 3;
+    const K_AX_VALUE_CF_RANGE_TYPE: u32 = 4;
+
+    unsafe {
+        let sw = AXUIElementCreateSystemWide();
+        if sw.is_null() {
+            return None;
+        }
+        let mut focused: CFTypeRef = std::ptr::null();
+        let attr = CFString::new("AXFocusedUIElement");
+        if AXUIElementCopyAttributeValue(sw, attr.as_concrete_TypeRef(), &mut focused) != 0
+            || focused.is_null()
+        {
+            return None;
+        }
+        let focused = focused as *mut AnyObject;
+
+        // 选中范围（光标 = 空选区）。部分自绘/Electron 控件不支持该属性 → 失败即回退。
+        let mut range_v: CFTypeRef = std::ptr::null();
+        let rattr = CFString::new("AXSelectedTextRange");
+        if AXUIElementCopyAttributeValue(focused, rattr.as_concrete_TypeRef(), &mut range_v) != 0
+            || range_v.is_null()
+        {
+            return None;
+        }
+        let mut range = AXCFRange { location: 0, length: 0 };
+        if !AXValueGetValue(
+            range_v as *const AnyObject,
+            K_AX_VALUE_CF_RANGE_TYPE,
+            &mut range as *mut AXCFRange as *mut c_void,
+        ) {
+            CFRelease(range_v);
+            return None;
+        }
+        CFRelease(range_v);
+
+        // 把 CFRange 包成 AXValue 作为 parameterized attribute 的参数（create 规则，用完释放）
+        let range_param = AXValueCreate(
+            K_AX_VALUE_CF_RANGE_TYPE,
+            &range as *const AXCFRange as *const c_void,
+        );
+        if range_param.is_null() {
+            return None;
+        }
+        let battr = CFString::new("AXBoundsForRange");
+        let mut bounds_v: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyParameterizedAttributeValue(
+            focused,
+            battr.as_concrete_TypeRef(),
+            range_param,
+            &mut bounds_v,
+        );
+        CFRelease(range_param);
+        if err != 0 || bounds_v.is_null() {
+            return None;
+        }
+
+        // bounds 是 AXValue 包装的 CGRect（全局 top-left origin 屏幕坐标）
+        let mut rect = core_graphics::geometry::CGRect {
+            origin: core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 },
+            size: core_graphics::geometry::CGSize { width: 0.0, height: 0.0 },
+        };
+        let ok = AXValueGetValue(
+            bounds_v as *const AnyObject,
+            K_AX_VALUE_CGRECT_TYPE,
+            &mut rect as *mut core_graphics::geometry::CGRect as *mut c_void,
+        );
+        CFRelease(bounds_v);
+        if !ok {
+            return None;
+        }
+
+        Some((
+            NSPoint { x: rect.origin.x, y: rect.origin.y },
+            objc2_foundation::NSSize { width: rect.size.width, height: rect.size.height },
         ))
     }
 }

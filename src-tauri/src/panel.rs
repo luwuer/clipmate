@@ -13,7 +13,7 @@ use objc2_foundation::{NSPoint, NSRect};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 use crate::model::AppState;
-use crate::paste::{focused_element_frame, frontmost_pid, main_screen_size};
+use crate::paste::{caret_precise_frame, focused_element_frame, frontmost_pid, main_screen_size};
 
 // ---------- non-activating NSPanel（不抢焦点的面板，CleanClip 同款方案） ----------
 
@@ -62,6 +62,13 @@ pub(crate) fn convert_to_panel(win: &WebviewWindow) {
             panel_can_become_key,
             types.as_ptr() as *const std::os::raw::c_char,
         );
+        // 圆角残留根因修复：transparent:true 只让 wry 关掉 webview 背景，
+        // NSWindow 本身仍是 opaque（默认白色底），圆角外的四角被窗口底色填上。
+        // 显式 setOpaque:false + clearColor 背景，窗口真正全透明。
+        let _: () = objc2::msg_send![ns_win, setOpaque: false];
+        let Some(nscolor_cls) = objc2::runtime::AnyClass::get(c"NSColor") else { return };
+        let clear_color: *mut AnyObject = objc2::msg_send![nscolor_cls, clearColor];
+        let _: () = objc2::msg_send![ns_win, setBackgroundColor: clear_color];
         let _: () = objc2::msg_send![ns_win, setHidesOnDeactivate: false];
         let _: () = objc2::msg_send![ns_win, setWorksWhenModal: true];
         let _: () = objc2::msg_send![ns_win, setBecomesKeyOnlyIfNeeded: false];
@@ -72,41 +79,60 @@ pub(crate) fn convert_to_panel(win: &WebviewWindow) {
     }
 }
 
-/// 面板定位：优先出现在「输入光标（AX 焦点元素）」正下方（CleanClip 行为），
-/// 拿不到焦点元素时回退到鼠标位置；并 clamp 在所在屏幕的可视区域内。
+/// 面板定位（输入法候选框 / CleanClip 行为）：
+/// 优先精确 caret（插入点）——左边缘对齐光标 x、顶部在光标下方 16pt；
+/// 拿不到 caret 回退焦点元素 frame（居中于元素底边），再回退鼠标位置；
+/// 并 clamp 在所在屏幕的可视区域内。
 pub(crate) fn position_under_cursor(win: &WebviewWindow) {
     unsafe {
         let Ok(ptr) = win.ns_window() else { return };
         let ns_win = ptr as *mut AnyObject;
 
-        // ---- 锚点：优先 AX 焦点元素（输入光标所在控件），回退鼠标 ----
+        // ---- 锚点：优先 AX 精确 caret，回退焦点元素 frame，再回退鼠标 ----
         let Some(nsevent_cls) = objc2::runtime::AnyClass::get(c"NSEvent") else { return };
         let mouse: NSPoint = objc2::msg_send![nsevent_cls, mouseLocation];
+        let (mw, mh) = main_screen_size();
 
-        // 焦点元素 frame 合理性过滤：某些 app（Electron/自绘 UI）的 AXFocusedUIElement
-        // 会返回整窗/超大区域甚至 (0,0)，此时定位不可靠 → 回退鼠标位置
-        let caret_anchor = focused_element_frame().and_then(|(pt, sz)| {
-            let (mw, mh) = main_screen_size();
-            let plausible = (pt.x > 1.0 || pt.y > 1.0) // 非全零
-                && pt.x >= -mw && pt.x <= 2.0 * mw
-                && pt.y >= -mh && pt.y <= 2.0 * mh
-                && sz.width > 0.0
-                && sz.width <= mw * 0.9 // 不超过九成屏宽（整窗判定）
-                && sz.height <= mh * 0.9;
-            if !plausible {
-                return None;
-            }
-            // AX 坐标（全局 top-left origin）→ AppKit（bottom-left origin）
-            let elem_bottom_appkit = mh - pt.y - sz.height;
-            Some((pt.x + sz.width / 2.0, elem_bottom_appkit))
-        });
+        // 锚点语义：(x, caret 底边的 AppKit y, 是否左边缘锚点)。
+        // AX 返回全局 top-left origin 坐标（y 向下），AppKit 是 bottom-left origin
+        // （y 向上）。y 轴翻转：底边 AppKit y = 主屏高 - ax_y - 高度。
+        // x 轴两个坐标系一致，无需转换。
+        let caret_anchor = caret_precise_frame()
+            .and_then(|(pt, sz)| {
+                // 合理性过滤（caret 允许宽为 0——插入点是细条；仅排除异常值）
+                let plausible = (pt.x > 1.0 || pt.y > 1.0)
+                    && pt.x >= -mw && pt.x <= 2.0 * mw
+                    && pt.y >= -mh && pt.y <= 2.0 * mh
+                    && sz.width <= mw * 0.9
+                    && sz.height > 0.0
+                    && sz.height <= mh * 0.9;
+                if !plausible {
+                    return None;
+                }
+                Some((pt.x, mh - pt.y - sz.height, true))
+            })
+            .or_else(|| {
+                // 焦点元素 frame 合理性过滤：某些 app（Electron/自绘 UI）的
+                // AXFocusedUIElement 会返回整窗/超大区域甚至 (0,0)，此时定位不可靠
+                focused_element_frame().and_then(|(pt, sz)| {
+                    let plausible = (pt.x > 1.0 || pt.y > 1.0) // 非全零
+                        && pt.x >= -mw && pt.x <= 2.0 * mw
+                        && pt.y >= -mh && pt.y <= 2.0 * mh
+                        && sz.width > 0.0
+                        && sz.width <= mw * 0.9 // 不超过九成屏宽（整窗判定）
+                        && sz.height <= mh * 0.9;
+                    if !plausible {
+                        return None;
+                    }
+                    Some((pt.x + sz.width / 2.0, mh - pt.y - sz.height, false))
+                })
+            });
 
         // 测试模式：CLIPMATE_TEST_CENTER=1 强制 panel 在主屏中央 1/4 位置（便于人眼/截屏定位验证）
-        let (anchor_x, anchor_y) = if std::env::var("CLIPMATE_TEST_CENTER").is_ok() {
-            let (mw, mh) = main_screen_size();
-            (mw / 2.0, mh - 80.0)
+        let (anchor_x, anchor_y, left_edge) = if std::env::var("CLIPMATE_TEST_CENTER").is_ok() {
+            (mw / 2.0, mh - 80.0, false)
         } else {
-            caret_anchor.unwrap_or((mouse.x, mouse.y))
+            caret_anchor.unwrap_or((mouse.x, mouse.y, false))
         };
 
         let frame: NSRect = objc2::msg_send![ns_win, frame];
@@ -130,16 +156,22 @@ pub(crate) fn position_under_cursor(win: &WebviewWindow) {
             }
         }
 
-        // 水平：以锚点为中心，clamp 到可视区
+        // 水平：caret 锚点左对齐（面板左边缘 = 光标 x）；元素/鼠标回退保持居中。
+        // clamp 到可视区，保证 440 宽面板不超出屏幕右缘。
         let min_x = vis.origin.x + 8.0;
         let max_x = vis.origin.x + vis.size.width - frame.size.width - 8.0;
+        let target_x = if left_edge {
+            anchor_x
+        } else {
+            anchor_x - frame.size.width / 2.0
+        };
         let x = if max_x < min_x {
             min_x
         } else {
-            (anchor_x - frame.size.width / 2.0).clamp(min_x, max_x)
+            target_x.clamp(min_x, max_x)
         };
 
-        // 垂直：锚点下方 16pt；若超出屏幕底部则改放锚点上方
+        // 垂直：锚点（caret/元素底边或鼠标）下方 16pt；若超出屏幕底部则翻转到锚点上方
         let gap = 16.0;
         let mut top_y = anchor_y - gap;
         if top_y - frame.size.height < vis.origin.y + 8.0 {
@@ -214,6 +246,35 @@ pub fn toggle_panel_pub(app: &AppHandle) {
     toggle_panel(app);
 }
 
+// ---------- 标题栏拖拽（手工追踪：nonactivating NSPanel 上 startDragging 无效） ----------
+
+/// 记录拖拽起点：返回 (鼠标 x, 鼠标 y, 窗口 origin x, 窗口 origin y)，AppKit 坐标。
+/// 前端传入的是 Web 屏幕坐标（primary 屏 top-left origin），y 轴需翻转。
+pub(crate) fn panel_drag_anchor(win: &WebviewWindow, x: f64, y: f64) -> Option<(f64, f64, f64, f64)> {
+    unsafe {
+        let Ok(ptr) = win.ns_window() else { return None };
+        let ns_win = ptr as *mut AnyObject;
+        let frame: NSRect = objc2::msg_send![ns_win, frame];
+        let (_, mh) = main_screen_size();
+        Some((x, mh - y, frame.origin.x, frame.origin.y))
+    }
+}
+
+/// 按起点 + 当前鼠标位置移动窗口（setFrameOrigin，不动焦点/不激活 app）
+pub(crate) fn panel_drag_apply(win: &WebviewWindow, x: f64, y: f64, anchor: (f64, f64, f64, f64)) {
+    unsafe {
+        let Ok(ptr) = win.ns_window() else { return };
+        let ns_win = ptr as *mut AnyObject;
+        let (_, mh) = main_screen_size();
+        let dx = x - anchor.0;
+        let dy = (mh - y) - anchor.1;
+        let _: () = objc2::msg_send![
+            ns_win,
+            setFrameOrigin: NSPoint { x: anchor.2 + dx, y: anchor.3 + dy }
+        ];
+    }
+}
+
 // ---------- 点击面板外部时自动关闭（NSEvent global mouse monitor，无需权限） ----------
 
 pub(crate) fn install_mouse_monitor(app: &AppHandle) {
@@ -225,6 +286,10 @@ pub(crate) fn install_mouse_monitor(app: &AppHandle) {
     let handler = RcBlock::new(move |_e: NonNull<AnyObject>| {
         let Some(win) = app_handle.get_webview_window("main") else { return };
         if !win.is_visible().unwrap_or(false) {
+            return;
+        }
+        // 拖拽期间不自动隐藏（拖拽中鼠标可能瞬时移出 frame）
+        if win.state::<AppState>().dragging.load(Ordering::SeqCst) {
             return;
         }
         // 刚显示的 150ms 内忽略，避免误触

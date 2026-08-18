@@ -97,7 +97,8 @@ let blurHideTimer = null;
 function onBlur() {
   clearTimeout(blurHideTimer);
   blurHideTimer = setTimeout(() => {
-    if (!document.hasFocus()) invoke("hide_panel");
+    // 拖拽期间不隐藏（面板被拖动时失焦属正常）
+    if (!document.hasFocus() && !titlebarDragging.value) invoke("hide_panel");
   }, 150);
 }
 function onFocus() {
@@ -112,16 +113,39 @@ function focusSearch(retry = 0) {
   }
 }
 
-// ---------- titlebar drag ----------
+// ---------- titlebar drag（手工追踪：nonactivating NSPanel 上 startDragging 无效） ----------
 
-const currentWin = window.__TAURI__?.window?.getCurrentWindow?.();
+let dragRafId = 0;
+let dragLastEvt = null;
 function onTitlebarMousedown(e) {
   if (e.button !== 0) return;
   titlebarDragging.value = true;
-  currentWin?.startDragging?.();
+  invoke("drag_begin", { x: e.screenX, y: e.screenY });
+  // 监听挂在 document 上：窗口跟随鼠标移动时相对位置不变，
+  // 但若 invoke 延迟导致窗口落后于鼠标，titlebar 自身的 mousemove/mouseup 会断
+  document.addEventListener("mousemove", onDragMousemove);
+  document.addEventListener("mouseup", stopDragging, { once: true });
+}
+function onDragMousemove(e) {
+  dragLastEvt = e;
+  if (dragRafId) return; // rAF 节流：每帧最多一次 invoke
+  dragRafId = requestAnimationFrame(() => {
+    dragRafId = 0;
+    if (dragLastEvt) {
+      invoke("drag_move", { x: dragLastEvt.screenX, y: dragLastEvt.screenY });
+    }
+  });
 }
 function stopDragging() {
+  if (!titlebarDragging.value) return;
   titlebarDragging.value = false;
+  document.removeEventListener("mousemove", onDragMousemove);
+  if (dragRafId) {
+    cancelAnimationFrame(dragRafId);
+    dragRafId = 0;
+  }
+  dragLastEvt = null;
+  invoke("drag_end");
 }
 
 // ---------- lifecycle ----------
@@ -158,8 +182,6 @@ onBeforeUnmount(() => {
       class="titlebar"
       :class="{ dragging: titlebarDragging }"
       @mousedown="onTitlebarMousedown"
-      @mouseup="stopDragging"
-      @mouseleave="stopDragging"
     >
       ClipMate
     </div>
