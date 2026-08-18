@@ -163,6 +163,55 @@ pub(crate) fn insert_dedup(items: &mut Vec<ClipboardItem>, new_item: ClipboardIt
     }
 }
 
+// ---------- R19: 多选批量（纯逻辑，供 commands 层调用、单测直测） ----------
+
+/// 批量选中内容合成：按 ids 给定顺序（前端传显示顺序）匹配条目——
+/// 有文本则全部文本按 "\n" 拼接（图片跳过）；无文本有图片则只取第一张图。
+/// 无任何命中返回 None。
+pub(crate) fn compose_batch(items: &[ClipboardItem], ids: &[u64]) -> Option<ItemKind> {
+    let mut texts: Vec<&str> = Vec::new();
+    let mut first_image: Option<&ItemKind> = None;
+    for id in ids {
+        let Some(it) = items.iter().find(|it| it.id == *id) else {
+            continue;
+        };
+        match &it.kind {
+            ItemKind::Text(t) => texts.push(t),
+            kind @ ItemKind::Image { .. } => {
+                if first_image.is_none() {
+                    first_image = Some(kind);
+                }
+            }
+        }
+    }
+    if !texts.is_empty() {
+        Some(ItemKind::Text(texts.join("\n")))
+    } else {
+        first_image.cloned()
+    }
+}
+
+/// 批量选中后把命中条目按 ids 顺序提升到 Vec 头部（take_item 的批量版，保持相对顺序）
+pub(crate) fn promote_to_head(items: &mut Vec<ClipboardItem>, ids: &[u64]) {
+    let mut hit: Vec<ClipboardItem> = Vec::new();
+    for id in ids {
+        if let Some(pos) = items.iter().position(|it| it.id == *id) {
+            hit.push(items.remove(pos));
+        }
+    }
+    for (i, it) in hit.into_iter().enumerate() {
+        items.insert(i, it);
+    }
+}
+
+/// 批量删除：按 id 集合移除，返回删除条数；剩余条目顺序不变
+pub(crate) fn remove_by_ids(items: &mut Vec<ClipboardItem>, ids: &[u64]) -> usize {
+    let set: std::collections::HashSet<u64> = ids.iter().copied().collect();
+    let before = items.len();
+    items.retain(|it| !set.contains(&it.id));
+    before - items.len()
+}
+
 // ---------- tests (R5/R6) ----------
 
 #[cfg(test)]
@@ -311,5 +360,96 @@ mod tests {
             split_for_limit(&mut b, |it| it.pinned, MAX_ITEMS);
             assert_eq!(a.len(), b.len());
         }
+    }
+
+    // ---------- R19: 多选批量 ----------
+
+    /// 3 条文本按 ids 顺序 "\n" 拼接；不存在的 id 跳过
+    #[test]
+    fn batch_join_texts_in_ids_order() {
+        let items = vec![text_item(1, false), text_item(2, false), text_item(3, false)];
+        let kind = compose_batch(&items, &[3, 1, 999, 2]).expect("some matched");
+        match kind {
+            ItemKind::Text(t) => assert_eq!(t, "t3\nt1\nt2"),
+            _ => panic!("expected text payload"),
+        }
+    }
+
+    /// 选区无文本只有图片 → 只取第一张图
+    #[test]
+    fn batch_images_only_take_first() {
+        let img = |id: u64, byte: u8| ClipboardItem {
+            id,
+            kind: ItemKind::Image {
+                png: vec![byte],
+                width: 1,
+                height: 1,
+            },
+            created_at: id,
+            pinned: false,
+        };
+        let items = vec![img(1, 0xAA), img(2, 0xBB)];
+        let kind = compose_batch(&items, &[2, 1]).expect("image matched");
+        match kind {
+            ItemKind::Image { png, .. } => assert_eq!(png, vec![0xBB], "first id in ids order"),
+            _ => panic!("expected image payload"),
+        }
+    }
+
+    /// 文本与图片混合：文本拼接，图片跳过
+    #[test]
+    fn batch_mixed_prefers_texts() {
+        let mut items = vec![text_item(1, false)];
+        items.push(ClipboardItem {
+            id: 2,
+            kind: ItemKind::Image {
+                png: vec![1],
+                width: 1,
+                height: 1,
+            },
+            created_at: 2,
+            pinned: false,
+        });
+        items.push(text_item(3, false));
+        match compose_batch(&items, &[2, 1, 3]) {
+            Some(ItemKind::Text(t)) => assert_eq!(t, "t1\nt3"),
+            _ => panic!("expected joined texts"),
+        }
+    }
+
+    /// 全部 id 未命中 → None
+    #[test]
+    fn batch_no_match_returns_none() {
+        let items = vec![text_item(1, false)];
+        assert!(compose_batch(&items, &[42, 43]).is_none());
+    }
+
+    /// 提升保持 ids 顺序到头部，未命中 id 不影响其余顺序
+    #[test]
+    fn promote_to_head_preserves_ids_order() {
+        let mut items = vec![
+            text_item(1, false),
+            text_item(2, false),
+            text_item(3, false),
+            text_item(4, false),
+        ];
+        promote_to_head(&mut items, &[3, 1]);
+        let order: Vec<u64> = items.iter().map(|it| it.id).collect();
+        assert_eq!(order, vec![3, 1, 2, 4]);
+    }
+
+    /// 批量删除：命中条目移除、剩余顺序不变、返回条数；删除后 enforce_limit 仍封顶
+    #[test]
+    fn remove_by_ids_and_limit_still_enforced() {
+        let mut items: Vec<ClipboardItem> = (0..(MAX_ITEMS + 20) as u64)
+            .map(|i| text_item(i, i == 5)) // id=5 pinned
+            .collect();
+        let removed = remove_by_ids(&mut items, &[0, 1, 2, 999]);
+        assert_eq!(removed, 3, "999 not present");
+        assert!(!items.iter().any(|it| it.id <= 2));
+        assert!(items.iter().any(|it| it.id == 3));
+        enforce_limit(&mut items);
+        assert_eq!(items.iter().filter(|it| !it.pinned).count(), MAX_ITEMS);
+        assert!(items.iter().any(|it| it.id == 5 && it.pinned), "pinned survives");
     }
 }

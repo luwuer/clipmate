@@ -78,18 +78,10 @@ fn take_item(state: &State<'_, AppState>, id: u64) -> Result<ClipboardItem, Stri
     Ok(it)
 }
 
-#[tauri::command]
-pub(crate) fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<(), String> {
-    // CGEventPost 模拟 Cmd+V 需要辅助功能权限；未授权时触发系统弹窗引导并中止本次粘贴
-    if !ensure_ax() {
-        return Err("NEED_AX_PERMISSION".into());
-    }
-
-    let item = take_item(&state, id)?;
-    app.state::<storage::Storage>().request_save(); // 重排后持久化
-
+/// 写回剪贴板 + 推进 poller baseline（select/copy/batch_select 共用写入口径）
+fn write_clipboard(state: &State<'_, AppState>, kind: &ItemKind) -> Result<(), String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    match &item.kind {
+    match kind {
         ItemKind::Text(t) => cb.set_text(t.clone()).map_err(|e| e.to_string())?,
         ItemKind::Image { png, .. } => {
             let img = decode_png(png).ok_or_else(|| "image decode failed".to_string())?;
@@ -100,12 +92,15 @@ pub(crate) fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -
     state
         .last_change_count
         .fetch_max(pasteboard_change_count(), Ordering::SeqCst);
+    Ok(())
+}
 
-    // 隐藏面板；wait/paste 放到后台线程，不冻结 AppKit 主事件循环
+/// 隐藏面板；wait/paste 放到后台线程，不冻结 AppKit 主事件循环
+/// （select_item / batch_select 共用投递路径）
+fn hide_and_paste(app: &AppHandle, target_pid: i32) {
     if let Some(win) = app.get_webview_window("main") {
         panel_hide_ns(&win);
     }
-    let target_pid = state.prev_front_pid.load(Ordering::SeqCst);
     std::thread::spawn(move || {
         if target_pid > 0 {
             activate_app(target_pid);
@@ -122,6 +117,64 @@ pub(crate) fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -
         }
         paste_cmd_v();
     });
+}
+
+#[tauri::command]
+pub(crate) fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<(), String> {
+    // CGEventPost 模拟 Cmd+V 需要辅助功能权限；未授权时触发系统弹窗引导并中止本次粘贴
+    if !ensure_ax() {
+        return Err("NEED_AX_PERMISSION".into());
+    }
+
+    let item = take_item(&state, id)?;
+    app.state::<storage::Storage>().request_save(); // 重排后持久化
+
+    write_clipboard(&state, &item.kind)?;
+    hide_and_paste(&app, state.prev_front_pid.load(Ordering::SeqCst));
+    Ok(())
+}
+
+/// R19: 批量粘贴——多条文本按 "\n" 拼接写回剪贴板后 Cmd+V；选区全是图片时只取第一张
+#[tauri::command]
+pub(crate) fn batch_select(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<u64>,
+) -> Result<(), String> {
+    if ids.is_empty() {
+        return Err("empty selection".into());
+    }
+    // 与 select_item 同一权限口径：未授权触发系统弹窗引导并中止
+    if !ensure_ax() {
+        return Err("NEED_AX_PERMISSION".into());
+    }
+
+    let payload = {
+        let mut items = state.items.lock().unwrap();
+        let kind = crate::model::compose_batch(&items, &ids)
+            .ok_or_else(|| "item not found".to_string())?;
+        crate::model::promote_to_head(&mut items, &ids); // 与 take_item 一致的 recency 排序
+        kind
+    };
+    app.state::<storage::Storage>().request_save(); // 重排后持久化
+
+    write_clipboard(&state, &payload)?;
+    hide_and_paste(&app, state.prev_front_pid.load(Ordering::SeqCst));
+    Ok(())
+}
+
+/// R19: 批量删除
+#[tauri::command]
+pub(crate) fn batch_delete(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<u64>,
+) -> Result<(), String> {
+    {
+        let mut items = state.items.lock().unwrap();
+        crate::model::remove_by_ids(&mut items, &ids);
+    }
+    app.state::<storage::Storage>().request_save();
     Ok(())
 }
 
@@ -129,20 +182,7 @@ pub(crate) fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -
 pub(crate) fn copy_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<(), String> {
     let item = take_item(&state, id)?;
     app.state::<storage::Storage>().request_save(); // 重排后持久化
-    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    match &item.kind {
-        ItemKind::Text(t) => cb.set_text(t.clone()).map_err(|e| e.to_string())?,
-        ItemKind::Image { png, .. } => {
-            let img = decode_png(png).ok_or_else(|| "image decode failed".to_string())?;
-            cb.set_image(img).map_err(|e| e.to_string())?;
-        }
-    }
-    // advance the poller baseline so our own write is not re-recorded
-    // （fetch_max 与 select_item/copy_tccutil_command 口径一致，防 baseline 回退）
-    state
-        .last_change_count
-        .fetch_max(pasteboard_change_count(), Ordering::SeqCst);
-    Ok(())
+    write_clipboard(&state, &item.kind)
 }
 
 #[tauri::command]

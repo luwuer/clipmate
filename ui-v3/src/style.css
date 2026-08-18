@@ -188,6 +188,19 @@ body {
 .item.active {
   background: var(--accent-active-bg);
 }
+/* R19 多选选中态：accent 边框 + 图标位变勾选标记 */
+.item.selected {
+  box-shadow: inset 0 0 0 1px var(--accent-focus-border);
+}
+.item.selected .item-icon {
+  background: var(--accent);
+  color: #fff;
+}
+.item-check {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
 .item:hover:not(.active) {
   background: var(--item-hover);
 }

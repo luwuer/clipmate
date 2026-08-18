@@ -10,6 +10,9 @@ const query = ref("");
 const searchInput = ref(null);
 const listEl = ref(null);
 const titlebarDragging = ref(false);
+// R19 多选状态机：selected=已选 id 集合，anchorIndex=Shift 扩展锚点
+const selected = ref(new Set());
+const anchorIndex = ref(0);
 
 function relTime(ts) {
   const diff = Date.now() - ts;
@@ -54,6 +57,60 @@ async function select(id) {
   }
 }
 
+// ---------- R19 多选 ----------
+
+function clearSelection() {
+  if (selected.value.size) selected.value = new Set();
+}
+
+function toggleSelected(id) {
+  const s = new Set(selected.value);
+  if (s.has(id)) s.delete(id);
+  else s.add(id);
+  selected.value = s;
+}
+
+// 按当前列表显示顺序取选中 id（batch 粘贴按此顺序拼接）
+function selectedIdsInOrder() {
+  return items.value.filter((it) => selected.value.has(it.id)).map((it) => it.id);
+}
+
+async function batchSelect() {
+  const ids = selectedIdsInOrder();
+  clearSelection();
+  try {
+    await invoke("batch_select", { ids });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function batchDelete() {
+  const ids = selectedIdsInOrder();
+  clearSelection();
+  await invoke("batch_delete", { ids });
+  await refresh();
+}
+
+// Shift+↑/↓：从锚点到当前高亮项的连续选区
+function extendSelection(next) {
+  if (!selected.value.size) anchorIndex.value = activeIndex.value;
+  const lo = Math.min(anchorIndex.value, next);
+  const hi = Math.max(anchorIndex.value, next);
+  selected.value = new Set(items.value.slice(lo, hi + 1).map((it) => it.id));
+}
+
+function onItemClick(e, it, i) {
+  if (e.metaKey || e.ctrlKey) {
+    activeIndex.value = i;
+    anchorIndex.value = i;
+    toggleSelected(it.id);
+  } else {
+    clearSelection();
+    select(it.id);
+  }
+}
+
 async function togglePin(it) {
   await invoke("toggle_pin", { id: it.id });
   await refresh(true);
@@ -72,19 +129,49 @@ async function clearAll() {
 // ---------- keyboard / focus ----------
 
 function onKeydown(e) {
-  if (e.key === "ArrowDown") {
+  const n = items.value.length;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
-    setActive(Math.min(activeIndex.value + 1, items.value.length - 1));
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    setActive(Math.max(activeIndex.value - 1, 0));
+    if (!n) return;
+    const dir = e.key === "ArrowDown" ? 1 : -1;
+    if (e.shiftKey) {
+      // Shift：anchor 扩展连续选区
+      const next = Math.min(Math.max(activeIndex.value + dir, 0), n - 1);
+      extendSelection(next);
+      setActive(next);
+    } else if (e.metaKey || e.ctrlKey) {
+      // Cmd+↑/↓：切换当前项选中状态（不移动高亮）
+      const it = items.value[activeIndex.value];
+      if (it) toggleSelected(it.id);
+    } else {
+      // 单选导航：清空多选
+      clearSelection();
+      setActive(Math.min(Math.max(activeIndex.value + dir, 0), n - 1));
+    }
   } else if (e.key === "Enter") {
     e.preventDefault();
-    const it = items.value[activeIndex.value];
-    if (it) select(it.id);
+    if (selected.value.size > 0) {
+      batchSelect();
+    } else {
+      const it = items.value[activeIndex.value];
+      if (it) select(it.id);
+    }
+  } else if (e.key === "Delete" || e.key === "Backspace") {
+    // 搜索框里有内容时 Backspace 优先编辑文本（输入框常态聚焦）
+    if (e.target === searchInput.value && e.key === "Backspace" && query.value.length > 0)
+      return;
+    e.preventDefault();
+    if (selected.value.size > 0) {
+      batchDelete();
+    } else {
+      const it = items.value[activeIndex.value];
+      if (it) deleteItem(it);
+    }
   } else if (e.key === "Escape") {
     e.preventDefault();
-    invoke("hide_panel");
+    // 先清多选；无多选才关面板
+    if (selected.value.size > 0) clearSelection();
+    else invoke("hide_panel");
   } else if ((e.metaKey || e.ctrlKey) && (e.key === "p" || e.key === "P")) {
     e.preventDefault();
     const it = items.value[activeIndex.value];
@@ -173,6 +260,7 @@ onMounted(async () => {
     await listen("panel-shown", async () => {
       query.value = "";
       activeIndex.value = 0;
+      clearSelection();
       await refresh();
       focusSearch(4);
     }),
@@ -217,13 +305,16 @@ onBeforeUnmount(() => {
         v-for="(it, i) in items"
         :key="it.id"
         class="item"
-        :class="{ active: i === activeIndex, pinned: it.pinned }"
-        @click="select(it.id)"
+        :class="{ active: i === activeIndex, pinned: it.pinned, selected: selected.has(it.id) }"
+        @click="onItemClick($event, it, i)"
         @mouseenter="setActive(i)"
       >
         <div class="item-icon">
-          <img v-if="it.type === 'image'" :src="it.image" alt="" />
-          <template v-else>T</template>
+          <span v-if="selected.has(it.id)" class="item-check">✓</span>
+          <template v-else>
+            <img v-if="it.type === 'image'" :src="it.image" alt="" />
+            <template v-else>T</template>
+          </template>
         </div>
         <div class="item-body">
           <div class="item-text">{{ it.type === "image" ? "图片" : it.text }}</div>
@@ -247,7 +338,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="footer">
-      <span>↑↓ 选择</span><span>⏎ 粘贴</span><span>⌘P 置顶</span><span>Esc 关闭</span><span>F2 切换</span>
+      <span>↑↓ 选择</span><span>⇧/⌘ 多选</span><span>⏎ 粘贴</span><span>⌘P 置顶</span><span>Esc 关闭</span><span>F2 切换</span>
     </div>
   </div>
 </template>

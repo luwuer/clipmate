@@ -109,6 +109,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_history,
             commands::select_item,
+            commands::batch_select,
+            commands::batch_delete,
             commands::copy_item,
             commands::delete_item,
             commands::clear_history,
