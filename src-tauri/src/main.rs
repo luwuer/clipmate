@@ -20,7 +20,7 @@ use tauri_plugin_global_shortcut::ShortcutState;
 const MAX_ITEMS: usize = 300;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const MAX_PNG_BYTES: usize = 8 * 1024 * 1024; // 8 MB
-const HOTKEY: &str = "F2";
+const DEFAULT_HOTKEY: &str = "F2"; // 配置缺失/非法时回退
 const V_KEYCODE: u16 = 9; // virtual keycode for "V"
 const PASTE_DELAY_MS: u64 = 150;
 
@@ -779,6 +779,34 @@ fn ensure_ax() -> bool {
     false
 }
 
+// ---------- R4: 快捷键配置（settings.json，缺失/解析失败回退 F2） ----------
+
+/// 读取 app_data_dir/settings.json 的 hotkey 字段；缺失字段或解析失败返回 DEFAULT_HOTKEY
+/// 首次启动时若 settings.json 不存在，自动写一份默认（=DEFAULT_HOTKEY），方便用户编辑
+fn read_hotkey_from_settings(data_dir: &std::path::Path) -> String {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    // 缺失 → 写默认
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, serde_json::json!({ "hotkey": DEFAULT_HOTKEY }).to_string());
+        return DEFAULT_HOTKEY.to_string();
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&content) else {
+        eprintln!("[clipmate] settings.json parse failed, fallback to {DEFAULT_HOTKEY}");
+        return DEFAULT_HOTKEY.to_string();
+    };
+    match v.get("hotkey").and_then(|x| x.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => {
+            eprintln!("[clipmate] settings.json missing/invalid 'hotkey', fallback to {DEFAULT_HOTKEY}");
+            DEFAULT_HOTKEY.to_string()
+        }
+    }
+}
+
 // ---------- 点击面板外部时自动关闭（NSEvent global mouse monitor，无需权限） ----------
 
 fn install_mouse_monitor(app: &AppHandle) {
@@ -869,7 +897,7 @@ fn main() {
 
             // ---- 历史持久化：加载既有条目 + 启动防抖落盘线程 ----
             let data_dir = app.path().app_data_dir().expect("app_data_dir unavailable");
-            let storage = storage::Storage::new(data_dir);
+            let storage = storage::Storage::new(data_dir.clone());
             let loaded = storage.load();
             let n_loaded = loaded.len();
             if n_loaded > 0 {
@@ -882,11 +910,16 @@ fn main() {
             app.manage(storage.clone());
             storage.start_flusher(app.handle().clone());
 
-            // register the F2 hotkey
+            // register the global hotkey (from settings.json, fallback F2)
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
-            match app.global_shortcut().register(HOTKEY) {
-                Ok(_) => eprintln!("[clipmate] hotkey {HOTKEY} registered"),
-                Err(e) => eprintln!("[clipmate] hotkey register failed: {e}"),
+            // R4: 读 settings.json 的 hotkey，缺失/非法回退 DEFAULT_HOTKEY
+            let cfg_hotkey = read_hotkey_from_settings(&data_dir);
+            match app.global_shortcut().register(cfg_hotkey.as_str()) {
+                Ok(_) => eprintln!("[clipmate] hotkey {cfg_hotkey} registered"),
+                Err(e) => {
+                    eprintln!("[clipmate] hotkey '{cfg_hotkey}' register failed: {e}, fallback to {DEFAULT_HOTKEY}");
+                    let _ = app.global_shortcut().register(DEFAULT_HOTKEY);
+                }
             }
 
             // 把窗口转成「不激活应用」的 NSPanel —— 全程不抢目标应用焦点
