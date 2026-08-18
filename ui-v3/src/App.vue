@@ -156,6 +156,18 @@ onMounted(async () => {
   window.addEventListener("blur", onBlur);
   window.addEventListener("focus", onFocus);
 
+  // 主题：启动读取 settings.json 应用；监听菜单栏切换事件同步
+  try {
+    document.body.dataset.theme = await invoke("get_theme");
+  } catch (e) {
+    console.error(e);
+  }
+  unlisteners.push(
+    await listen("theme-changed", (ev) => {
+      document.body.dataset.theme = ev.payload;
+    }),
+  );
+
   unlisteners.push(await listen("history-changed", () => refresh(true)));
   unlisteners.push(
     await listen("panel-shown", async () => {

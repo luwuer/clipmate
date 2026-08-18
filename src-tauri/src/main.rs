@@ -30,6 +30,40 @@ use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
 
 const DEFAULT_HOTKEY: &str = "F2"; // 配置缺失/非法时回退
+pub(crate) const DEFAULT_THEME: &str = "dark"; // theme 缺失/非法时回退
+
+/// 读取 settings.json 的 theme 字段（"dark"|"light"）；缺失/非法返回 DEFAULT_THEME
+pub(crate) fn read_theme_from_settings(data_dir: &std::path::Path) -> String {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return DEFAULT_THEME.to_string();
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&content) else {
+        return DEFAULT_THEME.to_string();
+    };
+    match v.get("theme").and_then(|x| x.as_str()) {
+        Some("light") => "light".to_string(),
+        _ => DEFAULT_THEME.to_string(),
+    }
+}
+
+/// 写入 theme 字段到 settings.json，保留其他字段（hotkey 等）
+pub(crate) fn write_theme_to_settings(data_dir: &std::path::Path, theme: &str) {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut v: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("theme".to_string(), Value::String(theme.to_string()));
+    }
+    let _ = std::fs::write(&path, v.to_string());
+}
 
 // ---------- R4: 快捷键配置（settings.json，缺失/解析失败回退 F2） ----------
 
@@ -85,7 +119,9 @@ fn main() {
             commands::drag_end,
             commands::is_ax_trusted,
             commands::open_accessibility_settings,
-            commands::copy_tccutil_command
+            commands::copy_tccutil_command,
+            commands::get_theme,
+            commands::set_theme
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

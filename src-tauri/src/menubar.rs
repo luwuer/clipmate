@@ -15,7 +15,7 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_foundation::NSString;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
 
 extern "C" {
     fn objc_allocateClassPair(
@@ -96,6 +96,15 @@ unsafe extern "C" fn target_clicked(
             // 触发系统授权请求 + 打开设置页（避免横幅的情况下提供入口）
             crate::paste::ax_trusted(true);
             crate::paste::open_accessibility_settings_page();
+        } else if tag == 4 {
+            // 切换主题：读当前 → 取反 → 写 settings.json → 通知前端
+            if let Ok(dir) = app.path().app_data_dir() {
+                let cur = crate::read_theme_from_settings(&dir);
+                let next = if cur == "dark" { "light" } else { "dark" };
+                crate::write_theme_to_settings(&dir, next);
+                let _ = app.emit("theme-changed", next);
+                eprintln!("[clipmate] theme switched to {next}");
+            }
         }
     }
 }
@@ -184,6 +193,20 @@ pub fn install(app: AppHandle) {
         let _: () = objc2::msg_send![ax_item, setTag: 3isize];
         let _: () = objc2::msg_send![ax_item, setEnabled: true];
         let _: () = objc2::msg_send![menu, addItem: ax_item];
+
+        // 菜单项: 切换主题（dark ↔ light，写 settings.json + emit 前端）
+        let theme_title = nsstring("切换主题");
+        let theme_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+        let theme_item: *mut AnyObject = objc2::msg_send![
+            theme_item,
+            initWithTitle: theme_title,
+            action: clicked_sel,
+            keyEquivalent: nsstring("")
+        ];
+        let _: () = objc2::msg_send![theme_item, setTarget: target];
+        let _: () = objc2::msg_send![theme_item, setTag: 4isize];
+        let _: () = objc2::msg_send![theme_item, setEnabled: true];
+        let _: () = objc2::msg_send![menu, addItem: theme_item];
 
         // 菜单项 2: 退出
         let quit_title = nsstring("退出 ClipMate");

@@ -213,6 +213,26 @@ pub(crate) fn is_ax_trusted() -> bool {
     ax_trusted(false)
 }
 
+// ---------- 主题（settings.json 的 theme 字段，"dark"|"light"） ----------
+
+#[tauri::command]
+pub(crate) fn get_theme(app: AppHandle) -> String {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return crate::DEFAULT_THEME.to_string();
+    };
+    crate::read_theme_from_settings(&dir)
+}
+
+#[tauri::command]
+pub(crate) fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    let theme = if theme == "light" { "light" } else { "dark" };
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    crate::write_theme_to_settings(&dir, theme);
+    use tauri::Emitter;
+    let _ = app.emit("theme-changed", theme);
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn open_accessibility_settings() {
     // 先触发一次系统请求弹窗（即使之前拒绝过也再试一次，让 ClipMate 出现在列表里）
