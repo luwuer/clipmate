@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod storage;
+mod menubar;
 
 use std::borrow::Cow;
 use std::ffi::c_void;
@@ -570,6 +571,9 @@ fn show_panel(app: &AppHandle) {
     let _ = app.emit("panel-shown", ());
 }
 
+// R3: 供 menubar.rs 回调使用（菜单"显示/隐藏剪贴板面板"）
+pub fn toggle_panel_pub(app: &AppHandle) { toggle_panel(app); }
+
 fn toggle_panel(app: &AppHandle) {
     let Some(win) = app.get_webview_window("main") else { return };
     if win.is_visible().unwrap_or(false) {
@@ -762,7 +766,6 @@ fn open_accessibility_settings() {
 use std::ptr::NonNull;
 
 use block2::RcBlock;
-use objc2::msg_send;
 
 /// 只弹一次系统授权框，避免每次选择都骚扰用户
 fn ensure_ax() -> bool {
@@ -910,6 +913,8 @@ fn main() {
 
             start_poller(app.handle().clone());
             install_mouse_monitor(&app.handle());
+            // R3: 安装菜单栏图标 + 退出入口（AppHandle 按值传入，Box 泄漏存全局）
+            menubar::install(app.handle().clone());
 
             // 启动时若无辅助功能权限，触发一次系统授权弹窗（粘贴功能必需：
             // CGEventPost 模拟 Cmd+V 在 macOS 10.14+ 需要该权限，否则事件被静默丢弃）
