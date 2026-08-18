@@ -2,7 +2,8 @@
 //!
 //! 实现要点（与现有 main.rs 风格一致：runtime + msg_send）：
 //! - 动态创建 NSObject 子类 ClipMateMenuTarget，addMethod `clicked:`
-//! - 所有 NSMenuItem 共享同一个 target 实例，按 tag 区分（1=show, 2=quit）
+//! - 所有 NSMenuItem 共享同一个 target 实例，按 tag 区分
+//!   （1=show, 2=quit, 3=辅助权限, 4=主题, 5=开机自启）
 //! - 回调通过全局 AtomicPtr<AppHandle> 取主线程 AppHandle 直接调用
 //!
 //! 避免 objc2 block/callback 生命周期坑（第五轮/第九轮教训），改用经典 objc4
@@ -96,6 +97,22 @@ unsafe extern "C" fn target_clicked(
             // 触发系统授权请求 + 打开设置页（避免横幅的情况下提供入口）
             crate::paste::ax_trusted(true);
             crate::paste::open_accessibility_settings_page();
+        } else if tag == 5 {
+            // R20: 开机自启开关（LaunchAgent plist）——勾选态直接画在本菜单项上
+            let enabled = crate::autostart::is_enabled();
+            let result = if enabled {
+                crate::autostart::disable()
+            } else {
+                crate::autostart::enable()
+            };
+            match result {
+                Ok(()) => {
+                    let new_state: isize = if enabled { 0 } else { 1 }; // NSOffState/NSOnState
+                    let _: () = objc2::msg_send![sender, setState: new_state];
+                    eprintln!("[clipmate] autostart toggled -> {}", !enabled);
+                }
+                Err(e) => eprintln!("[clipmate] autostart toggle failed: {e}"),
+            }
         } else if tag == 4 {
             // 切换主题：读当前 → 取反 → 写 settings.json → 通知前端
             if let Ok(dir) = app.path().app_data_dir() {
@@ -207,6 +224,22 @@ pub fn install(app: AppHandle) {
         let _: () = objc2::msg_send![theme_item, setTag: 4isize];
         let _: () = objc2::msg_send![theme_item, setEnabled: true];
         let _: () = objc2::msg_send![menu, addItem: theme_item];
+
+        // 菜单项: 开机自启（勾选态：初始读 plist 是否存在；点击切换写/删 plist）
+        let autostart_title = nsstring("开机自启");
+        let autostart_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+        let autostart_item: *mut AnyObject = objc2::msg_send![
+            autostart_item,
+            initWithTitle: autostart_title,
+            action: clicked_sel,
+            keyEquivalent: nsstring("")
+        ];
+        let _: () = objc2::msg_send![autostart_item, setTarget: target];
+        let _: () = objc2::msg_send![autostart_item, setTag: 5isize];
+        let _: () = objc2::msg_send![autostart_item, setEnabled: true];
+        let initial_state: isize = if crate::autostart::is_enabled() { 1 } else { 0 };
+        let _: () = objc2::msg_send![autostart_item, setState: initial_state];
+        let _: () = objc2::msg_send![menu, addItem: autostart_item];
 
         // 菜单项 2: 退出
         let quit_title = nsstring("退出 ClipMate");

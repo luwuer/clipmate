@@ -10,6 +10,7 @@
 //! - storage.rs   JSONL 持久化（R1）/ menubar.rs 菜单栏（R3）——此前已独立
 //! - main.rs      本文件：builder + setup + 快捷键配置
 
+mod autostart;
 mod clipboard;
 mod commands;
 mod menubar;
@@ -184,6 +185,9 @@ fn main() {
                     }
                 });
             }
+
+            // R20: 开机自启 plist 路径漂移修正（用户移动/重装 .app 后自动更新）
+            autostart::sync_path_if_stale();
 
             clipboard::start_poller(app.handle().clone());
             panel::install_mouse_monitor(app.handle());
