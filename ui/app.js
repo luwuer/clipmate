@@ -185,3 +185,18 @@ listen("panel-shown", async () => {
 
 // initial load
 refresh();
+
+// 标题栏拖拽：mousedown 时调 tauri 的 startDragging（webview 不能直接拖 NSWindow）
+const titlebar = document.getElementById("titlebar");
+if (titlebar && window.__TAURI__?.window) {
+  const win = window.__TAURI__.window.getCurrentWindow?.();
+  titlebar.addEventListener("mousedown", (e) => {
+    // 左键才触发拖拽，避免影响右键菜单等
+    if (e.button !== 0) return;
+    titlebar.classList.add("dragging");
+    win?.startDragging?.();
+  });
+  ["mouseup", "mouseleave"].forEach((ev) =>
+    titlebar.addEventListener(ev, () => titlebar.classList.remove("dragging")),
+  );
+}

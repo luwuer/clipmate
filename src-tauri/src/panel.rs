@@ -69,6 +69,7 @@ pub(crate) fn convert_to_panel(win: &WebviewWindow) {
         let _: () = objc2::msg_send![ns_win, setLevel: 3isize];
         // 让面板在全屏应用上方也能看见：CanJoinAllSpaces(1) | FullScreenAuxiliary(32)
         let _: () = objc2::msg_send![ns_win, setCollectionBehavior: 33usize];
+        // 圆角用 webview 透明背景 + CSS border-radius 实现（避免 macOS 13+ API 兼容性 panic）
     }
 }
 

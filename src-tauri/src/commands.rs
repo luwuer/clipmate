@@ -186,9 +186,21 @@ pub(crate) fn is_ax_trusted() -> bool {
 
 #[tauri::command]
 pub(crate) fn open_accessibility_settings() {
-    let _ = std::process::Command::new("open")
-        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    // 先触发一次系统请求弹窗（即使之前拒绝过也再试一次，让 ClipMate 出现在列表里）
+    let _ = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(r#"tell application "System Events" to keystroke "" "#)
         .spawn();
+    ax_trusted(true);
+    // 同时打开辅助功能设置页（macOS 15 路径：系统设置 → 隐私与安全性 → 辅助功能）
+    let urls = [
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+    ];
+    for url in urls {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 #[tauri::command]

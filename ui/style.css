@@ -26,6 +26,32 @@ body {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
 }
 
+/* HTML hidden 属性应强制隐藏（.empty 等有 display:flex 容易压过） */
+[hidden] {
+  display: none !important;
+}
+
+/* ---- titlebar（可拖拽）---- */
+.titlebar {
+  flex-shrink: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  cursor: move;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.titlebar.dragging {
+  cursor: grabbing;
+}
+
 /* ---- accessibility banner ---- */
 .ax-banner {
   display: flex;

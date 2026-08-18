@@ -24,7 +24,7 @@
         "skipTaskbar": true,
         "shadow": true,
         "center": false,
-        "backgroundColor": "#1C1C1E"
+        "backgroundColor": "#1C1C1E00"
       }
     ],
     "security": {

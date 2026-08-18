@@ -87,11 +87,17 @@ pkill -f clipmate
 
 ## 首次使用：授权
 
-粘贴到其他应用需要 macOS **辅助功能** 权限。首次启动时如果未授权，应用会触发系统提示：
+粘贴到其他应用需要 macOS **辅助功能** 权限。ClipMate 会在启动时自动请求一次（macOS 系统弹窗），点「打开系统设置」即可。如果在设置里找不到 ClipMate 入口（之前拒过/列表为空），用以下任一方式：
 
-1. 启动 ClipMate，按 F2 唤起面板
-2. 顶部出现橙色横幅「需要「辅助功能」权限…」
-3. 点击「去授权」按钮 → 系统设置自动打开
+**方式 A（推荐）**：系统设置 → 隐私与安全性 → 辅助功能 → 滚动到列表底部 → 点 **+** → 选择 ClipMate.app（路径 `/Users/mdy/workspace_test/repos/clipmate/dist/ClipMate.app`）→ 勾选
+
+**方式 B**：终端执行后重启 ClipMate，弹窗会自动重新出现
+
+```bash
+tccutil reset Accessibility com.mdy.clipmate
+```
+
+菜单栏图标 → "打开设置" 按钮也会同时尝试触发系统请求 + 打开两个版本的设置 URL（兼容 macOS 13 与 macOS 15）。
 4. 勾选 **ClipMate**
 5. 重启 ClipMate 生效
 
