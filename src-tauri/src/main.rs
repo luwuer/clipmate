@@ -203,6 +203,31 @@ fn enforce_limit(items: &mut Vec<ClipboardItem>) {
     });
 }
 
+/// 去重与上限策略（R6，池 #8）：
+/// 新条目若与现有**任意**条目内容相同：
+/// - 命中的是 pinned → 不新增（pinned 已有该内容，且置顶分组本来就在最前）
+/// - 命中的是非 pinned 旧条目 → 把旧条目提升到头部（CleanClip 式 recency 提升，
+///   等价于"复制旧内容 = 置顶"），不新增条目
+/// 无命中 → 头部新增并执行容量淘汰。
+/// 返回 false 表示历史无变化（调用方跳过 save/emit）。
+fn insert_dedup(items: &mut Vec<ClipboardItem>, new_item: ClipboardItem) -> bool {
+    if let Some(pos) = items.iter().position(|it| same_content(it, &new_item)) {
+        if items[pos].pinned {
+            return false; // pinned 已有该内容
+        }
+        let mut old = items.remove(pos);
+        // recency 提升关键：时间戳刷新为"最后复制时间"——get_history 按 created_at
+        // 倒序渲染，不刷新则旧条目仍沉在后面，"复制旧内容=置顶"不成立
+        old.created_at = new_item.created_at;
+        items.insert(0, old); // 数量不变，无需再 enforce_limit
+        true
+    } else {
+        items.insert(0, new_item);
+        enforce_limit(items);
+        true
+    }
+}
+
 fn start_poller(app: AppHandle) {
     std::thread::spawn(move || {
         let mut clipboard = match arboard::Clipboard::new() {
@@ -230,11 +255,9 @@ fn start_poller(app: AppHandle) {
 
             if let Some(item) = new_item {
                 let mut items = state.items.lock().unwrap();
-                if items.first().map(|it| same_content(it, &item)) == Some(true) {
-                    continue; // duplicate of the most recent entry
+                if !insert_dedup(&mut items, item) {
+                    continue; // 命中 pinned 去重，历史无变化
                 }
-                items.insert(0, item);
-                enforce_limit(&mut items);
                 drop(items);
                 app.state::<storage::Storage>().request_save();
                 let _ = app.emit("history-changed", ());
@@ -487,7 +510,6 @@ fn position_under_cursor(win: &WebviewWindow) {
         });
 
         let (anchor_x, anchor_y) = caret_anchor.unwrap_or((mouse.x, mouse.y));
-        let (anchor_x, anchor_y) = caret_anchor.unwrap_or((mouse.x, mouse.y));
 
         let frame: NSRect = objc2::msg_send![ns_win, frame];
 
@@ -719,9 +741,11 @@ fn copy_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<(), 
             cb.set_image(img).map_err(|e| e.to_string())?;
         }
     }
+    // advance the poller baseline so our own write is not re-recorded
+    // （fetch_max 与 select_item/copy_tccutil_command 口径一致，防 baseline 回退）
     state
         .last_change_count
-        .store(pasteboard_change_count(), Ordering::SeqCst);
+        .fetch_max(pasteboard_change_count(), Ordering::SeqCst);
     Ok(())
 }
 
@@ -908,12 +932,15 @@ fn main() {
             // ---- 历史持久化：加载既有条目 + 启动防抖落盘线程 ----
             let data_dir = app.path().app_data_dir().expect("app_data_dir unavailable");
             let storage = storage::Storage::new(data_dir.clone());
-            let loaded = storage.load();
+            let mut loaded = storage.load();
             let n_loaded = loaded.len();
             if n_loaded > 0 {
                 let state = app.state::<AppState>();
                 let max_id = loaded.iter().map(|it| it.id).max().unwrap_or(0);
                 state.next_id.store(max_id + 1, Ordering::SeqCst); // 防 id 冲突
+                // R6: 加载路径同样执行上限策略——落盘上限(500)大于内存上限(300)，
+                // 不补这一步则重启后 unpinned 条目可超限，直到下一条新剪贴内容才收敛
+                enforce_limit(&mut loaded);
                 *state.items.lock().unwrap() = loaded;
             }
             eprintln!("[clipmate] loaded {n_loaded} persisted items");
@@ -1042,5 +1069,60 @@ mod tests {
         enforce_limit(&mut items);
         assert_eq!(items.iter().filter(|it| it.pinned).count(), MAX_ITEMS + 5);
         assert_eq!(items.len(), MAX_ITEMS + 6);
+    }
+
+    // ---------- R6: 去重与上限策略统一 ----------
+
+    /// 场景 1：新条目与任意 pinned 条目内容相同 → 不新增（返回 false、数量不变）
+    #[test]
+    fn dedup_pinned_match_not_inserted() {
+        let mut items = vec![text_item(1, false), text_item(2, true), text_item(3, false)];
+        let dup = ClipboardItem {
+            id: 99,
+            kind: ItemKind::Text("t2".into()), // 与 pinned 条目 id=2 同内容
+            created_at: 99,
+            pinned: false,
+        };
+        assert!(!insert_dedup(&mut items, dup), "pinned hit must be a no-op");
+        assert_eq!(items.len(), 3, "no new entry");
+        assert!(!items.iter().any(|it| it.id == 99));
+        assert!(items.iter().any(|it| it.id == 2 && it.pinned), "pinned untouched");
+    }
+
+    /// 场景 2：新条目与非 pinned 旧条目相同 → 旧条目提升到头部，数量不变
+    #[test]
+    fn dedup_old_unpinned_promoted_to_head() {
+        let mut items = vec![text_item(1, false), text_item(2, false), text_item(3, false)];
+        let dup = ClipboardItem {
+            id: 99,
+            kind: ItemKind::Text("t3".into()), // 与最旧条目 id=3 同内容
+            created_at: 99,
+            pinned: false,
+        };
+        assert!(insert_dedup(&mut items, dup));
+        assert_eq!(items.len(), 3, "promotion must not grow history");
+        assert_eq!(items[0].id, 3, "old entry promoted to head");
+        assert_eq!(items[0].created_at, 99, "recency: created_at refreshed to copy time");
+        assert!(!items.iter().any(|it| it.id == 99), "no duplicate inserted");
+    }
+
+    /// 场景 3：无命中 → 正常头部新增
+    #[test]
+    fn dedup_no_match_inserts_at_head() {
+        let mut items = vec![text_item(1, false)];
+        assert!(insert_dedup(&mut items, text_item(2, false)));
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, 2);
+    }
+
+    /// 加载路径上限统一：落盘可含 500 条（PERSIST_LIMIT）> 内存上限，
+    /// enforce_limit 后 unpinned 收敛到 MAX_ITEMS、pinned 全保留
+    #[test]
+    fn loaded_history_capped_after_enforce() {
+        let mut loaded: Vec<ClipboardItem> =
+            (0..500u64).map(|i| text_item(i, i < 5)).collect(); // 前 5 条 pinned
+        enforce_limit(&mut loaded);
+        assert_eq!(loaded.iter().filter(|it| !it.pinned).count(), MAX_ITEMS);
+        assert_eq!(loaded.iter().filter(|it| it.pinned).count(), 5);
     }
 }

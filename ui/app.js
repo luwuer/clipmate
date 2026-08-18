@@ -120,7 +120,7 @@ async function select(id) {
 
 // 横幅只在粘贴失败时短暂出现；不做持续轮询（功能本身不依赖辅助权限）
 
-// 非激活面板 resign key（用户点击了其他应用）时自动隐藏
+// 面板 resign key（用户点击了其他应用）时自动隐藏
 let blurHideTimer = null;
 window.addEventListener("blur", () => {
   clearTimeout(blurHideTimer);
@@ -130,28 +130,8 @@ window.addEventListener("blur", () => {
 });
 window.addEventListener("focus", () => clearTimeout(blurHideTimer));
 
-// Rust NSEvent monitor 兜底入口：window.__CLIPMATE_KEY__("up"/"down"/"select"/"hide")
-window.__CLIPMATE_KEY__ = (action) => {
-  if (action === "hide") {
-    invoke("hide_panel");
-  } else if (action === "up") {
-    setActive(Math.max(activeIndex - 1, 0));
-  } else if (action === "down") {
-    setActive(Math.min(activeIndex + 1, items.length - 1));
-  } else if (action === "select") {
-    const it = items[activeIndex];
-    if (it) select(it.id);
-  } else if (action === "backspace") {
-    searchInput.value = searchInput.value.slice(0, -1);
-    refresh();
-  }
-};
-
-// CGEventTap 注入的可打印字符（面板可见时按键不进前台应用，转给搜索框）
-window.__CLIPMATE_CHAR__ = (ch) => {
-  searchInput.value += ch;
-  refresh();
-};
+// （R6 清理：__CLIPMATE_KEY__/__CLIPMATE_CHAR__ 是 CGEventTap 时代的注入入口，
+//  Rust 侧已无调用方，键盘主路径 DOM keydown 稳定工作，删除死代码）
 
 // ---------- events ----------
 
