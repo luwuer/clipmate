@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 非沙盒分发（Developer ID）：不启用 App Sandbox，剪贴板工具必需 -->
+	<!-- Accessibility 由 TCC 用户授权控制，不需要 entitlement -->
+	<!-- 允许未签名动态库/无页面执行限制：Tauri/WKWebView 正常运行所需 -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
