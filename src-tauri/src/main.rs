@@ -191,6 +191,18 @@ fn capture_item(state: &AppState, clipboard: &mut arboard::Clipboard) -> Option<
     None
 }
 
+/// 容量淘汰策略（R5，修 Critic P1）：
+/// - 非 pinned 条目最多保留 MAX_ITEMS 条（从尾部淘汰最老的）
+/// - **pinned 条目永不淘汰且不受上限约束**——数量由用户手动 pin 控制，
+///   即使 pinned 数量本身超过 MAX_ITEMS 也全部保留
+fn enforce_limit(items: &mut Vec<ClipboardItem>) {
+    let mut unpinned_kept = 0usize;
+    items.retain(|it| it.pinned || {
+        unpinned_kept += 1;
+        unpinned_kept <= MAX_ITEMS
+    });
+}
+
 fn start_poller(app: AppHandle) {
     std::thread::spawn(move || {
         let mut clipboard = match arboard::Clipboard::new() {
@@ -222,9 +234,7 @@ fn start_poller(app: AppHandle) {
                     continue; // duplicate of the most recent entry
                 }
                 items.insert(0, item);
-                if items.len() > MAX_ITEMS {
-                    items.truncate(MAX_ITEMS);
-                }
+                enforce_limit(&mut items);
                 drop(items);
                 app.state::<storage::Storage>().request_save();
                 let _ = app.emit("history-changed", ());
@@ -868,7 +878,7 @@ fn copy_tccutil_command(state: State<'_, AppState>) -> Result<(), String> {
 
 fn main() {
     eprintln!("[clipmate] starting…");
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -966,6 +976,71 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running ClipMate");
+        .build(tauri::generate_context!())
+        .expect("error while building ClipMate");
+
+    // R5: 退出前同步落盘一次，消除 2s 防抖窗口内的变更丢失
+    // （menubar「退出」app.exit(0) 与正常退出路径都会经过 RunEvent::Exit）
+    app.run(|app, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Some(st) = app.try_state::<storage::Storage>() {
+                st.flush_now(app);
+            }
+        }
+    });
+}
+
+// ---------- tests (R5) ----------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_item(id: u64, pinned: bool) -> ClipboardItem {
+        ClipboardItem {
+            id,
+            kind: ItemKind::Text(format!("t{id}")),
+            created_at: id,
+            pinned,
+        }
+    }
+
+    /// Critic P1 场景：满 300 条 + 尾部 1 条 pinned + 新条目进来 → pinned 存活
+    #[test]
+    fn pinned_survives_limit_eviction() {
+        let mut items: Vec<ClipboardItem> =
+            (0..MAX_ITEMS as u64).map(|i| text_item(i, false)).collect();
+        items.push(text_item(999, true)); // pinned 沉到 Vec 尾部（最老位置）
+        items.insert(0, text_item(1000, false)); // poller 新条目
+        enforce_limit(&mut items);
+        assert!(
+            items.iter().any(|it| it.id == 999 && it.pinned),
+            "pinned item must survive eviction"
+        );
+        assert_eq!(items.iter().filter(|it| !it.pinned).count(), MAX_ITEMS);
+    }
+
+    /// 非 pinned 上限仍受控：最新条目保留、总量封顶 MAX_ITEMS
+    #[test]
+    fn unpinned_capped_at_max_items() {
+        let mut items: Vec<ClipboardItem> = (0..(MAX_ITEMS + 10) as u64)
+            .map(|i| text_item(i, false))
+            .collect();
+        items.insert(0, text_item(9999, false));
+        enforce_limit(&mut items);
+        assert_eq!(items.len(), MAX_ITEMS);
+        assert_eq!(items[0].id, 9999, "newest entry must be kept");
+    }
+
+    /// pinned 数量本身超过上限时全部保留（不受上限约束）
+    #[test]
+    fn pinned_over_limit_all_kept() {
+        let mut items: Vec<ClipboardItem> = (0..(MAX_ITEMS + 5) as u64)
+            .map(|i| text_item(i, true))
+            .collect();
+        items.insert(0, text_item(9999, false));
+        enforce_limit(&mut items);
+        assert_eq!(items.iter().filter(|it| it.pinned).count(), MAX_ITEMS + 5);
+        assert_eq!(items.len(), MAX_ITEMS + 6);
+    }
 }
