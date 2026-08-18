@@ -20,6 +20,8 @@ struct PersistRecord {
     id: u64,
     text: String,
     created_at: u64,
+    #[serde(default)] // R2: 老文件无此字段视为 false（向后兼容）
+    pinned: bool,
 }
 
 struct Inner {
@@ -66,6 +68,7 @@ impl Storage {
                 id: rec.id,
                 kind: ItemKind::Text(rec.text),
                 created_at: rec.created_at,
+                pinned: rec.pinned,
             });
         }
         let len = items.len();
@@ -89,7 +92,7 @@ impl Storage {
         for it in items.iter().take(PERSIST_LIMIT) {
             // 图片条目不持久化：png 体积会让 JSONL 急剧膨胀
             let ItemKind::Text(text) = &it.kind else { continue };
-            let rec = PersistRecord { id: it.id, text: text.clone(), created_at: it.created_at };
+            let rec = PersistRecord { id: it.id, text: text.clone(), created_at: it.created_at, pinned: it.pinned };
             let line = serde_json::to_string(&rec).map_err(std::io::Error::other)?;
             buf.push_str(&line);
             buf.push('\n');

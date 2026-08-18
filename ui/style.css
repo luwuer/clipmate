@@ -138,6 +138,15 @@ body {
 .item:hover:not(.active) {
   background: rgba(255, 255, 255, 0.07);
 }
+/* R2: 置顶项视觉标识 —— 左侧金色边框 + 略亮背景 */
+.item.pinned {
+  border-left: 2px solid rgba(255, 200, 60, 0.7);
+  background: rgba(255, 200, 60, 0.05);
+}
+.item.pinned.active {
+  /* 置顶且激活时蓝色为主，金色边作为点缀 */
+  border-left-color: rgba(255, 200, 60, 0.95);
+}
 
 .item-icon {
   width: 30px;
@@ -198,6 +207,27 @@ body {
 .item-del:hover {
   background: rgba(255, 69, 58, 0.3);
   color: #ff6961;
+}
+
+/* R2: 置顶按钮 —— 始终可见（与隐藏的删除按钮不同，操作是高频的） */
+.item-pin {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+.item.pinned .item-pin {
+  color: rgba(255, 200, 60, 0.95);
+}
+.item-pin:hover {
+  background: rgba(255, 200, 60, 0.18);
+  color: rgba(255, 200, 60, 1);
 }
 
 /* ---- empty state ---- */

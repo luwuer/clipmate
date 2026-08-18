@@ -26,7 +26,7 @@ function render() {
   const frag = document.createDocumentFragment();
   items.forEach((it, i) => {
     const row = document.createElement("div");
-    row.className = "item" + (i === activeIndex ? " active" : "");
+    row.className = "item" + (i === activeIndex ? " active" : "") + (it.pinned ? " pinned" : "");
 
     const icon = document.createElement("div");
     icon.className = "item-icon";
@@ -60,6 +60,16 @@ function render() {
     m.textContent = meta;
     body.appendChild(m);
 
+    const pin = document.createElement("button");
+    pin.className = "item-pin";
+    pin.textContent = it.pinned ? "★" : "☆";
+    pin.title = it.pinned ? "取消置顶" : "置顶该项（⌘P）";
+    pin.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await invoke("toggle_pin", { id: it.id });
+      await refresh(true);
+    });
+
     const del = document.createElement("button");
     del.className = "item-del";
     del.textContent = "✕";
@@ -70,7 +80,7 @@ function render() {
       await refresh();
     });
 
-    row.append(icon, body, del);
+    row.append(icon, body, pin, del);
     row.addEventListener("click", () => select(it.id));
     row.addEventListener("mouseenter", () => setActive(i));
     frag.appendChild(row);
@@ -161,6 +171,14 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Escape") {
     e.preventDefault();
     invoke("hide_panel");
+  } else if ((e.metaKey || e.ctrlKey) && (e.key === "p" || e.key === "P")) {
+    // R2: ⌘P 切换置顶
+    e.preventDefault();
+    const it = items[activeIndex];
+    if (it) {
+      invoke("toggle_pin", { id: it.id });
+      refresh(true);
+    }
   }
 });
 

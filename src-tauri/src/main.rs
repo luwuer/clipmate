@@ -36,6 +36,7 @@ struct ClipboardItem {
     id: u64,
     kind: ItemKind,
     created_at: u64, // unix ms
+    pinned: bool,    // R2: 收藏/置顶，置顶项优先展示且防被新条目顶掉
 }
 
 #[derive(Serialize)]
@@ -48,6 +49,7 @@ struct ItemDto {
     width: Option<u32>,
     height: Option<u32>,
     time: u64,
+    pinned: bool, // R2
 }
 
 struct AppState {
@@ -169,7 +171,7 @@ fn capture_item(state: &AppState, clipboard: &mut arboard::Clipboard) -> Option<
         if text.trim().is_empty() || text.len() > MAX_TEXT_BYTES {
             return None;
         }
-        return Some(ClipboardItem { id, kind: ItemKind::Text(text), created_at });
+        return Some(ClipboardItem { id, kind: ItemKind::Text(text), created_at, pinned: false });
     }
 
     if let Ok(img) = clipboard.get_image() {
@@ -181,6 +183,7 @@ fn capture_item(state: &AppState, clipboard: &mut arboard::Clipboard) -> Option<
             id,
             kind: ItemKind::Image { png, width: img.width as u32, height: img.height as u32 },
             created_at,
+            pinned: false,
         });
     }
 
@@ -590,6 +593,7 @@ fn to_dto(it: &ClipboardItem) -> ItemDto {
                 width: None,
                 height: None,
                 time: it.created_at,
+                pinned: it.pinned,
             }
         }
         ItemKind::Image { png, width, height } => ItemDto {
@@ -603,6 +607,7 @@ fn to_dto(it: &ClipboardItem) -> ItemDto {
             width: Some(*width),
             height: Some(*height),
             time: it.created_at,
+            pinned: it.pinned,
         },
     }
 }
@@ -611,7 +616,7 @@ fn to_dto(it: &ClipboardItem) -> ItemDto {
 fn get_history(state: State<'_, AppState>, query: String) -> Vec<ItemDto> {
     let items = state.items.lock().unwrap();
     let q = query.trim().to_lowercase();
-    items
+    let mut filtered: Vec<&ClipboardItem> = items
         .iter()
         .filter(|it| match (&it.kind, q.is_empty()) {
             (_, true) => true,
@@ -623,9 +628,10 @@ fn get_history(state: State<'_, AppState>, query: String) -> Vec<ItemDto> {
                     .any(|k| q.contains(k) || k.contains(&q))
             }
         })
-        .take(200)
-        .map(to_dto)
-        .collect()
+        .collect();
+    // R2: 置顶项优先；同组按时间倒序
+    filtered.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.created_at.cmp(&a.created_at)));
+    filtered.into_iter().take(200).map(to_dto).collect()
 }
 
 fn take_item(state: &State<'_, AppState>, id: u64) -> Result<ClipboardItem, String> {
@@ -719,6 +725,17 @@ fn clear_history(app: AppHandle, state: State<'_, AppState>) -> Result<(), Strin
     state.items.lock().unwrap().clear();
     app.state::<storage::Storage>().request_save(); // 清空后落盘 → jsonl 重写为空
     Ok(())
+}
+
+#[tauri::command]
+fn toggle_pin(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<bool, String> {
+    let mut items = state.items.lock().unwrap();
+    let it = items.iter_mut().find(|it| it.id == id).ok_or_else(|| "item not found".to_string())?;
+    it.pinned = !it.pinned;
+    let new_state = it.pinned;
+    drop(items);
+    app.state::<storage::Storage>().request_save();
+    Ok(new_state)
 }
 
 #[tauri::command]
@@ -837,6 +854,7 @@ fn main() {
             copy_item,
             delete_item,
             clear_history,
+            toggle_pin,
             hide_panel,
             is_ax_trusted,
             open_accessibility_settings,
