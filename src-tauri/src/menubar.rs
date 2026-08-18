@@ -92,6 +92,12 @@ unsafe extern "C" fn target_clicked(
             crate::toggle_panel_pub(app);
         } else if tag == 2 {
             app.exit(0);
+        } else if tag == 3 {
+            // 触发系统授权请求 + 打开设置页（避免横幅的情况下提供入口）
+            crate::paste::ax_trusted(true);
+            let _ = std::process::Command::new("open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                .spawn();
         }
     }
 }
@@ -166,6 +172,20 @@ pub fn install(app: AppHandle) {
         // 分隔
         let sep: *mut AnyObject = objc2::msg_send![item_cls, separatorItem];
         let _: () = objc2::msg_send![menu, addItem: sep];
+
+        // 菜单项: 重新申请辅助功能权限（避免横幅的情况下提供入口）
+        let ax_title = nsstring("申请辅助权限并打开设置");
+        let ax_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+        let ax_item: *mut AnyObject = objc2::msg_send![
+            ax_item,
+            initWithTitle: ax_title,
+            action: clicked_sel,
+            keyEquivalent: nsstring("")
+        ];
+        let _: () = objc2::msg_send![ax_item, setTarget: target];
+        let _: () = objc2::msg_send![ax_item, setTag: 3isize];
+        let _: () = objc2::msg_send![ax_item, setEnabled: true];
+        let _: () = objc2::msg_send![menu, addItem: ax_item];
 
         // 菜单项 2: 退出
         let quit_title = nsstring("退出 ClipMate");
