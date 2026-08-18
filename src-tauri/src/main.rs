@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+mod storage;
+
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
@@ -220,6 +222,7 @@ fn start_poller(app: AppHandle) {
                     items.truncate(MAX_ITEMS);
                 }
                 drop(items);
+                app.state::<storage::Storage>().request_save();
                 let _ = app.emit("history-changed", ());
             }
         }
@@ -644,6 +647,7 @@ fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<()
     }
 
     let item = take_item(&state, id)?;
+    app.state::<storage::Storage>().request_save(); // 重排后持久化
     let target_pid = state.prev_front_pid.load(Ordering::SeqCst);
 
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -684,8 +688,9 @@ fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<()
 }
 
 #[tauri::command]
-fn copy_item(state: State<'_, AppState>, id: u64) -> Result<(), String> {
+fn copy_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<(), String> {
     let item = take_item(&state, id)?;
+    app.state::<storage::Storage>().request_save(); // 重排后持久化
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     match &item.kind {
         ItemKind::Text(t) => cb.set_text(t.clone()).map_err(|e| e.to_string())?,
@@ -701,15 +706,18 @@ fn copy_item(state: State<'_, AppState>, id: u64) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn delete_item(state: State<'_, AppState>, id: u64) -> Result<(), String> {
+fn delete_item(app: AppHandle, state: State<'_, AppState>, id: u64) -> Result<(), String> {
     let mut items = state.items.lock().unwrap();
     items.retain(|it| it.id != id);
+    drop(items);
+    app.state::<storage::Storage>().request_save();
     Ok(())
 }
 
 #[tauri::command]
-fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
+fn clear_history(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     state.items.lock().unwrap().clear();
+    app.state::<storage::Storage>().request_save(); // 清空后落盘 → jsonl 重写为空
     Ok(())
 }
 
@@ -837,6 +845,21 @@ fn main() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // ---- 历史持久化：加载既有条目 + 启动防抖落盘线程 ----
+            let data_dir = app.path().app_data_dir().expect("app_data_dir unavailable");
+            let storage = storage::Storage::new(data_dir);
+            let loaded = storage.load();
+            let n_loaded = loaded.len();
+            if n_loaded > 0 {
+                let state = app.state::<AppState>();
+                let max_id = loaded.iter().map(|it| it.id).max().unwrap_or(0);
+                state.next_id.store(max_id + 1, Ordering::SeqCst); // 防 id 冲突
+                *state.items.lock().unwrap() = loaded;
+            }
+            eprintln!("[clipmate] loaded {n_loaded} persisted items");
+            app.manage(storage.clone());
+            storage.start_flusher(app.handle().clone());
 
             // register the F2 hotkey
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
