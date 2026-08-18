@@ -4,7 +4,7 @@
 //! - png 编解码与 DTO 转换
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64};
+use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU64};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -48,7 +48,6 @@ pub struct AppState {
     pub(crate) items: Mutex<Vec<ClipboardItem>>,
     pub(crate) next_id: AtomicU64,
     pub(crate) last_change_count: AtomicI64,
-    pub(crate) positioned: AtomicBool,
     pub(crate) shown_at: Mutex<Option<std::time::Instant>>,
     /// 唤起面板前处于前台的 App，作为 Cmd+V 的投递目标
     pub(crate) prev_front_pid: AtomicI32,
@@ -60,7 +59,6 @@ impl AppState {
             items: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             last_change_count: AtomicI64::new(i64::MIN),
-            positioned: AtomicBool::new(false),
             shown_at: Mutex::new(None),
             prev_front_pid: AtomicI32::new(0),
         }
@@ -118,10 +116,17 @@ pub(crate) fn now_ms() -> u64 {
 /// - **pinned 条目永不淘汰且不受上限约束**——数量由用户手动 pin 控制，
 ///   即使 pinned 数量本身超过 MAX_ITEMS 也全部保留
 pub(crate) fn enforce_limit(items: &mut Vec<ClipboardItem>) {
+    split_for_limit(items, |it| it.pinned, MAX_ITEMS);
+}
+
+/// R8: 统一截断策略（修 Critic P2）——pinned 全部保留；非 pinned 只保留最新的
+/// `limit` 条（Vec 头部=最新，从尾部淘汰最老）。内存上限（enforce_limit）与
+/// 落盘/加载截断（storage.rs）共用此函数，杜绝再出现按位置静默截断。
+pub(crate) fn split_for_limit<T>(items: &mut Vec<T>, is_pinned: impl Fn(&T) -> bool, limit: usize) {
     let mut unpinned_kept = 0usize;
-    items.retain(|it| it.pinned || {
+    items.retain(|it| is_pinned(it) || {
         unpinned_kept += 1;
-        unpinned_kept <= MAX_ITEMS
+        unpinned_kept <= limit
     });
 }
 
@@ -130,7 +135,9 @@ pub(crate) fn enforce_limit(items: &mut Vec<ClipboardItem>) {
 /// - 命中的是 pinned → 不新增（pinned 已有该内容，且置顶分组本来就在最前）
 /// - 命中的是非 pinned 旧条目 → 把旧条目提升到头部（CleanClip 式 recency 提升，
 ///   等价于"复制旧内容 = 置顶"），不新增条目
+///
 /// 无命中 → 头部新增并执行容量淘汰。
+///
 /// 返回 false 表示历史无变化（调用方跳过 save/emit）。
 pub(crate) fn insert_dedup(items: &mut Vec<ClipboardItem>, new_item: ClipboardItem) -> bool {
     if let Some(pos) = items.iter().position(|it| same_content(it, &new_item)) {
@@ -257,5 +264,46 @@ mod tests {
         enforce_limit(&mut loaded);
         assert_eq!(loaded.iter().filter(|it| !it.pinned).count(), MAX_ITEMS);
         assert_eq!(loaded.iter().filter(|it| it.pinned).count(), 5);
+    }
+
+    // ---------- R8: 落盘截断统一（修 Critic P2） ----------
+
+    /// R8 核心场景：pinned 数量本身超过截断上限（300 > 落盘 limit=500 减去 unpinned
+    /// 的余量场景）——旧 take(limit) 按位置截断会把尾部老 pinned 静默丢出 jsonl；
+    /// split_for_limit 语义：pinned 全保留 + 非 pinned 保最新 limit 条
+    #[test]
+    fn split_for_limit_keeps_all_pinned_even_beyond_limit() {
+        // 550 unpinned（头=最新）+ 300 pinned（沉在尾部=最老位置，旧实现必丢）
+        let mut items: Vec<ClipboardItem> = (0..550u64)
+            .map(|i| text_item(i, false))
+            .chain((1000..1300u64).map(|i| text_item(i, true)))
+            .collect();
+        split_for_limit(&mut items, |it| it.pinned, 500);
+        assert_eq!(
+            items.iter().filter(|it| it.pinned).count(),
+            300,
+            "all pinned must survive, none silently dropped"
+        );
+        assert_eq!(items.iter().filter(|it| !it.pinned).count(), 500);
+        // 非 pinned 保的是最新（头部）：id 500..549 被淘汰，0..499 保留
+        assert!(items.iter().filter(|it| !it.pinned).all(|it| it.id < 500));
+    }
+
+    /// 与 enforce_limit 语义自洽：limit=MAX_ITEMS 时两者行为等价
+    #[test]
+    fn split_for_limit_consistent_with_enforce_limit() {
+        let mk = |pin: bool| -> Vec<ClipboardItem> {
+            let mut v: Vec<ClipboardItem> =
+                (0..(MAX_ITEMS + 10) as u64).map(|i| text_item(i, false)).collect();
+            v.push(text_item(9999, pin));
+            v
+        };
+        for pin in [false, true] {
+            let mut a = mk(pin);
+            let mut b = mk(pin);
+            enforce_limit(&mut a);
+            split_for_limit(&mut b, |it| it.pinned, MAX_ITEMS);
+            assert_eq!(a.len(), b.len());
+        }
     }
 }

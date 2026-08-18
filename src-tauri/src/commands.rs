@@ -87,7 +87,6 @@ pub(crate) fn select_item(app: AppHandle, state: State<'_, AppState>, id: u64) -
 
     let item = take_item(&state, id)?;
     app.state::<storage::Storage>().request_save(); // 重排后持久化
-    let target_pid = state.prev_front_pid.load(Ordering::SeqCst);
 
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     match &item.kind {

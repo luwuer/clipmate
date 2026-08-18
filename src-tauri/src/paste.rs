@@ -114,11 +114,6 @@ pub(crate) fn main_screen_size() -> (f64, f64) {
     }
 }
 
-/// 主屏高度（points），用于 AX top-left 坐标 → AppKit bottom-left 坐标转换
-pub(crate) fn main_screen_height() -> f64 {
-    main_screen_size().1
-}
-
 pub(crate) fn ax_trusted(prompt: bool) -> bool {
     use core_foundation::base::TCFType;
     use core_foundation::boolean::CFBoolean;

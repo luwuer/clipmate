@@ -40,32 +40,6 @@ unsafe extern "C" fn panel_can_become_key(
     1 // YES
 }
 
-/// 递归查找 WKWebView —— 真正的键盘接收者，藏在 contentView 子视图树里
-unsafe fn find_webview_view(view: *mut AnyObject) -> Option<*mut AnyObject> {
-    if view.is_null() {
-        return None;
-    }
-    let cls = object_getClass(view);
-    if !cls.is_null() {
-        let name = class_getName(cls);
-        if !name.is_null() {
-            let bytes = std::ffi::CStr::from_ptr(name).to_bytes();
-            if bytes.windows(8).any(|w| w == b"WKWebView") {
-                return Some(view);
-            }
-        }
-    }
-    let subs: *mut AnyObject = objc2::msg_send![view, subviews];
-    let count: usize = objc2::msg_send![subs, count];
-    for i in 0..count {
-        let sub: *mut AnyObject = objc2::msg_send![subs, objectAtIndex: i];
-        if let Some(found) = find_webview_view(sub) {
-            return Some(found);
-        }
-    }
-    None
-}
-
 /// 把 Tauri 的 borderless NSWindow 强转为 NSPanel 并打开 NonactivatingPanel 风格。
 /// 之后面板可以成为 key window（接收键盘）但**不会激活本应用**，
 /// 目标应用始终保持前台 —— Cmd+V 不再有任何焦点交接时序问题。

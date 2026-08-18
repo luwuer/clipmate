@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::model::split_for_limit;
 use crate::{AppHandle, ItemKind, Manager};
 
 const PERSIST_LIMIT: usize = 500; // 最多落盘/加载的条数
@@ -59,7 +60,8 @@ impl Storage {
         }
     }
 
-    /// 启动时加载持久化历史（尾部 PERSIST_LIMIT 条，坏行跳过）
+    /// 启动时加载持久化历史（坏行跳过；截断走 split_for_limit：
+    /// pinned 全保留 + 非 pinned 保最新 PERSIST_LIMIT 条，与落盘口径对称）
     pub fn load(&self) -> Vec<crate::ClipboardItem> {
         let Ok(content) = fs::read_to_string(&self.path) else {
             return Vec::new();
@@ -76,10 +78,7 @@ impl Storage {
                 pinned: rec.pinned,
             });
         }
-        let len = items.len();
-        if len > PERSIST_LIMIT {
-            items.drain(..len - PERSIST_LIMIT);
-        }
+        split_for_limit(&mut items, |it| it.pinned, PERSIST_LIMIT);
         items
     }
 
@@ -118,9 +117,14 @@ impl Storage {
     fn snapshot_write(&self, app: &AppHandle) -> std::io::Result<usize> {
         let state = app.state::<crate::AppState>();
         let items = state.items.lock().unwrap();
+        // R8 修 Critic P2：pinned 全部保留 + 非 pinned 保最新 PERSIST_LIMIT 条。
+        // 旧实现 take(PERSIST_LIMIT) 按位置截断，pinned>200 时尾部老 pinned 被
+        // 静默丢出 jsonl，与 enforce_limit"pinned 永不淘汰"跨层矛盾
+        let mut snapshot: Vec<&crate::ClipboardItem> = items.iter().collect();
+        split_for_limit(&mut snapshot, |it| it.pinned, PERSIST_LIMIT);
         let mut buf = String::new();
         let mut n = 0;
-        for it in items.iter().take(PERSIST_LIMIT) {
+        for it in snapshot {
             // 图片条目不持久化：png 体积会让 JSONL 急剧膨胀
             let ItemKind::Text(text) = &it.kind else { continue };
             let rec = PersistRecord { id: it.id, text: text.clone(), created_at: it.created_at, pinned: it.pinned };
@@ -229,5 +233,36 @@ mod tests {
         let changed_at = s.inner.last_change_ms.load(Ordering::SeqCst);
         s.clear_dirty_if_unchanged(changed_at);
         assert!(!s.inner.dirty.load(Ordering::SeqCst));
+    }
+
+    /// R8 修 Critic P2 端到端：jsonl 总行数 > PERSIST_LIMIT 且 pinned 在文件尾部
+    /// （最老位置）——旧按位置截断/drain 头部都会丢 pinned；新 load 全保留。
+    /// 场景 = 500 unpinned + 300 pinned（pinned>200 时旧 snapshot_write 的 take
+    /// 截断会静默丢尾部 pinned）
+    #[test]
+    fn load_keeps_all_pinned_when_file_exceeds_limit() {
+        let s = tmp_storage();
+        let mut buf = String::new();
+        // jsonl 头=最新：500 条 unpinned 在前，300 条 pinned 沉在尾部
+        for i in 0..500u64 {
+            let rec = PersistRecord { id: i, text: format!("t{i}"), created_at: i, pinned: false };
+            buf.push_str(&serde_json::to_string(&rec).unwrap());
+            buf.push('\n');
+        }
+        for i in 1000..1300u64 {
+            let rec = PersistRecord { id: i, text: format!("p{i}"), created_at: i, pinned: true };
+            buf.push_str(&serde_json::to_string(&rec).unwrap());
+            buf.push('\n');
+        }
+        fs::write(&s.path, buf).unwrap();
+        let items = s.load();
+        assert_eq!(
+            items.iter().filter(|it| it.pinned).count(),
+            300,
+            "pinned entries must all survive load, none silently dropped"
+        );
+        assert_eq!(items.iter().filter(|it| !it.pinned).count(), 500);
+        // 非 pinned 保最新（jsonl 头部）：unpinned id 0..499 全在
+        assert!(items.iter().filter(|it| !it.pinned).all(|it| it.id < 500));
     }
 }

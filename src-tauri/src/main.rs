@@ -10,8 +10,6 @@
 //! - storage.rs   JSONL 持久化（R1）/ menubar.rs 菜单栏（R3）——此前已独立
 //! - main.rs      本文件：builder + setup + 快捷键配置
 
-#![allow(dead_code)]
-
 mod clipboard;
 mod commands;
 mod menubar;
@@ -143,7 +141,7 @@ fn main() {
             }
 
             clipboard::start_poller(app.handle().clone());
-            panel::install_mouse_monitor(&app.handle());
+            panel::install_mouse_monitor(app.handle());
             // R3: 安装菜单栏图标 + 退出入口（AppHandle 按值传入，Box 泄漏存全局）
             menubar::install(app.handle().clone());
 
