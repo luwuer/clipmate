@@ -69,13 +69,6 @@ pub(crate) fn convert_to_panel(win: &WebviewWindow) {
         let _: () = objc2::msg_send![ns_win, setLevel: 3isize];
         // 让面板在全屏应用上方也能看见：CanJoinAllSpaces(1) | FullScreenAuxiliary(32)
         let _: () = objc2::msg_send![ns_win, setCollectionBehavior: 33usize];
-        // macOS 13+ 系统级窗口圆角（先 respondsToSelector 探测，避免 unrecognized selector panic）
-        use objc2::sel;
-        let corner_sel = sel!(setCornerRadius:);
-        let responds: bool = objc2::msg_send![ns_win, respondsToSelector: corner_sel];
-        if responds {
-            let _: () = objc2::msg_send![ns_win, setCornerRadius: 12.0_f64];
-        }
     }
 }
 
@@ -108,7 +101,13 @@ pub(crate) fn position_under_cursor(win: &WebviewWindow) {
             Some((pt.x + sz.width / 2.0, elem_bottom_appkit))
         });
 
-        let (anchor_x, anchor_y) = caret_anchor.unwrap_or((mouse.x, mouse.y));
+        // 测试模式：CLIPMATE_TEST_CENTER=1 强制 panel 在主屏中央 1/4 位置（便于人眼/截屏定位验证）
+        let (anchor_x, anchor_y) = if std::env::var("CLIPMATE_TEST_CENTER").is_ok() {
+            let (mw, mh) = main_screen_size();
+            (mw / 2.0, mh - 80.0)
+        } else {
+            caret_anchor.unwrap_or((mouse.x, mouse.y))
+        };
 
         let frame: NSRect = objc2::msg_send![ns_win, frame];
 

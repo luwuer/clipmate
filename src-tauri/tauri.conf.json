@@ -17,14 +17,14 @@
         "minWidth": 320,
         "minHeight": 240,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "visible": false,
         "alwaysOnTop": true,
         "resizable": true,
         "skipTaskbar": true,
         "shadow": true,
         "center": false,
-        "backgroundColor": "#1C1C1E00"
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {
