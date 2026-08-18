@@ -10,9 +10,9 @@ const query = ref("");
 const searchInput = ref(null);
 const listEl = ref(null);
 const titlebarDragging = ref(false);
-// R19 多选状态机：selected=已选 id 集合，anchorIndex=Shift 扩展锚点
+// R19 多选状态机：selected=已选 id 集合，anchorIndex=Shift 扩展锚点（null=无锚点）
 const selected = ref(new Set());
-const anchorIndex = ref(0);
+const anchorIndex = ref(null);
 
 function relTime(ts) {
   const diff = Date.now() - ts;
@@ -46,6 +46,16 @@ function setActive(i) {
 async function refresh(keepActive = false) {
   items.value = await invoke("get_history", { query: query.value });
   if (!keepActive || activeIndex.value >= items.value.length) activeIndex.value = 0;
+  // R21 P2-1：列表重排/过滤后，剔除已不在新列表中的选中 id（仍存在的选中项保留）；
+  // anchor 越界则清空，Shift 扩展时回退到从当前高亮开始
+  if (selected.value.size) {
+    const visible = new Set(items.value.map((it) => it.id));
+    const pruned = [...selected.value].filter((id) => visible.has(id));
+    if (pruned.length !== selected.value.size) selected.value = new Set(pruned);
+  }
+  if (anchorIndex.value != null && anchorIndex.value >= items.value.length) {
+    anchorIndex.value = null;
+  }
   scrollActiveIntoView();
 }
 
@@ -94,7 +104,8 @@ async function batchDelete() {
 
 // Shift+↑/↓：从锚点到当前高亮项的连续选区
 function extendSelection(next) {
-  if (!selected.value.size) anchorIndex.value = activeIndex.value;
+  // 无锚点（refresh 越界清空后）或无现有多选时，从当前高亮起锚
+  if (anchorIndex.value == null || !selected.value.size) anchorIndex.value = activeIndex.value;
   const lo = Math.min(anchorIndex.value, next);
   const hi = Math.max(anchorIndex.value, next);
   selected.value = new Set(items.value.slice(lo, hi + 1).map((it) => it.id));
@@ -157,9 +168,9 @@ function onKeydown(e) {
       if (it) select(it.id);
     }
   } else if (e.key === "Delete" || e.key === "Backspace") {
-    // 搜索框里有内容时 Backspace 优先编辑文本（输入框常态聚焦）
-    if (e.target === searchInput.value && e.key === "Backspace" && query.value.length > 0)
-      return;
+    // R21 P2-2：搜索框聚焦时 Backspace 永远只编辑文本（query 删空后也不落到删除分支），
+    // 删除条目仅在搜索框无焦点时可用（Delete 键不受此限）
+    if (e.key === "Backspace" && document.activeElement === searchInput.value) return;
     e.preventDefault();
     if (selected.value.size > 0) {
       batchDelete();
