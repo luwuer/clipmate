@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClipMate</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="panel">
+    <div class="header">
+      <input id="search" type="text" placeholder="搜索剪贴板历史…" autocomplete="off" spellcheck="false" />
+      <button id="clearBtn" class="icon-btn" title="清空历史">⌫</button>
+    </div>
+
+    <div class="list" id="list"></div>
+
+    <div class="empty" id="empty" hidden>
+      <div class="empty-icon">📋</div>
+      <div>暂无复制记录</div>
+      <div class="empty-sub">复制点内容，然后按 F2 唤起</div>
+    </div>
+
+    <div class="footer">
+      <span>↑↓ 选择</span><span>⏎ 粘贴</span><span>Esc 关闭</span><span>F2 切换</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# build artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# distribution output
+dist/
+
+# deps
+node_modules/
+
+# macOS
+.DS_Store
+
+# logs
+*.log
