@@ -14,5 +14,9 @@ node_modules/
 # logs
 *.log
 
+# code signing private keys (never commit)
+scripts/certs/*.p12
+scripts/certs/*.key
+
 # loop runner ledger (untracked, like runtime state)
 .loop/

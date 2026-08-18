@@ -131,15 +131,28 @@ pub(crate) fn ax_trusted(prompt: bool) -> bool {
     }
 }
 
-/// 只弹一次系统授权框，避免每次选择都骚扰用户
+/// 打开「系统设置 → 隐私与安全性 → 辅助功能」设置页（双 URL 兼容 macOS 13/15）
+pub(crate) fn open_accessibility_settings_page() {
+    let urls = [
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+    ];
+    for url in urls {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+/// 每次无权限都重新触发系统弹窗 + 打开设置页兜底。
+/// 注意：AXIsProcessTrustedWithOptions(prompt:true) 在用户拒绝过一次后，
+/// 系统自己也不会重复弹框（TCC 行为）——所以必须同时打开设置页，
+/// 让用户无论系统弹不弹框都总能找到授权入口。
 pub(crate) fn ensure_ax() -> bool {
-    static PROMPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if ax_trusted(false) {
         return true;
     }
-    if !PROMPTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        ax_trusted(true);
-    }
+    ax_trusted(true);
+    open_accessibility_settings_page();
     false
 }
 

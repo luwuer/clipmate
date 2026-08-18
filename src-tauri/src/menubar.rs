@@ -95,9 +95,7 @@ unsafe extern "C" fn target_clicked(
         } else if tag == 3 {
             // 触发系统授权请求 + 打开设置页（避免横幅的情况下提供入口）
             crate::paste::ax_trusted(true);
-            let _ = std::process::Command::new("open")
-                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-                .spawn();
+            crate::paste::open_accessibility_settings_page();
         }
     }
 }
