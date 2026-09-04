@@ -1,7 +1,7 @@
 [package]
 name = "clipmate"
 version = "0.2.0"
-description = "A minimal macOS clipboard history tool"
+description = "A minimal cross-platform (macOS/Windows) clipboard history tool"
 edition = "2021"
 
 [build-dependencies]

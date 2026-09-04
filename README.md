@@ -1,6 +1,24 @@
 # ClipMate
 
-一个极简的剪贴板历史工具。
+一个极简的**跨平台剪贴板历史工具**（macOS / Windows）：按下热键唤起面板，方向键选择，回车粘贴回当前应用。
+
+> 双平台均为原生实现：macOS 用 NSPanel / CGEvent / AX API，Windows 用 SendInput / 系统托盘 / 注册表自启，差异详见[平台差异](#平台差异)。不上架 App Store 的原因见 [RELEASING.md](RELEASING.md)。
+
+## 目录
+
+- [特性](#特性)
+- [效果预览](#效果预览)
+- [快速开始](#快速开始)
+- [键盘操作](#键盘操作)
+- [菜单栏与托盘](#菜单栏与托盘)
+- [配置 settingsjson](#配置settingsjson)
+- [首次使用授权](#首次使用授权)
+- [行为细节](#行为细节)
+- [平台差异](#平台差异)
+- [发布打包](#发布打包)
+- [项目结构](#项目结构)
+
+## 特性
 
 - **F2**（可配置）唤起面板，方向键选择，Enter 粘贴回当前应用，Esc 关闭
 - 记录 **文本** 与 **图片**，支持 **搜索过滤**
@@ -8,8 +26,9 @@
 - **收藏/置顶**：⌘P pin 重要条目，永不被淘汰
 - **多选批量**：Shift/⌘ 多选，批量拼接粘贴、批量删除
 - **主题切换**：dark / light，菜单栏一键切换
+- **面板位置**：屏幕顶部居中（默认）/ 跟随光标，两种模式可切换
 - **开机自启**：菜单栏勾选即可
-- 圆角悬浮面板，跟随光标位置弹出，可拖拽移动
+- 圆角悬浮面板，可拖拽移动
 
 ## 效果预览
 
@@ -27,22 +46,29 @@
 ╰──────────────────────────────────╯
 ```
 
-## 技术栈
-
-- **Tauri 2** + **Rust**：后端逻辑、全局热键、剪贴板监听、Cmd+V 模拟、NSPanel 焦点模型
-- **Vue 3 + Vite**：前端面板（ui/）
-- 依赖：arboard（剪贴板读写）、core-graphics（CGEvent）、png、objc2（NSStatusItem / NSPanel）、tauri-plugin-global-shortcut
-
 ## 快速开始
 
-```bash
-# 开发构建（秒级增量，自动签名 + 组装 .app）
-bash scripts/dev-build.sh --run
+前置要求：[Rust](https://rustup.rs/)、Node.js（含 npm）。
 
-# 发布构建（见下文「发布打包」）
+**macOS**（13+）：
+
+```bash
+# 开发构建（秒级增量，自动 npm install、签名、组装 .app 并运行）
+bash scripts/dev-build.sh --run
 ```
 
-首次构建前端需 `npm install`（dev-build.sh 会自动处理）。
+**Windows**（10/11）：
+
+```powershell
+cd ui
+npm install
+npm run build                    # 产出 ui/dist
+cd ../app
+cargo build                      # 调试运行 target\debug\clipmate.exe
+
+# 打安装包（NSIS）
+npx -y @tauri-apps/cli@2 build   # 产物：target\release\bundle\nsis\
+```
 
 ## 键盘操作
 
@@ -51,36 +77,42 @@ bash scripts/dev-build.sh --run
 | **F2**（可配置） | 显示/隐藏面板 |
 | **↑ / ↓** | 移动高亮 |
 | **Shift+↑ / ↓** | 从锚点扩展连续多选 |
-| **⌘+↑ / ↓** | 切换当前条目的选中状态 |
+| **Ctrl/⌘ +↑ / ↓** | 切换当前条目的选中状态 |
 | **Enter** | 无多选：粘贴当前条目；有多选：按列表顺序拼接批量粘贴 |
 | **Delete / Backspace** | 无多选：删除当前条目；有多选：批量删除（搜索框聚焦时 Backspace 只删文本） |
-| **⌘P** | 置顶/取消置顶当前条目 |
+| **Ctrl/⌘ +P** | 置顶/取消置顶当前条目 |
 | **Esc** | 先清除多选；无多选时关闭面板 |
 | **输入文字** | 实时过滤历史（文本内容） |
 
-## 菜单栏
+## 菜单栏与托盘
 
-菜单栏图标常驻，菜单项：
+macOS 菜单栏 / Windows 系统托盘图标常驻，菜单项：
 
 - **显示面板** — 等价于按热键
-- **申请辅助权限并打开设置** — 触发系统授权请求 + 打开设置页
+- **申请辅助权限并打开设置**（仅 macOS）— 触发系统授权请求 + 打开设置页
 - **切换主题** — dark ↔ light，立即生效并持久化
-- **开机自启** — 勾选后写入 LaunchAgent，登录时自动启动
+- **面板位置** — 屏幕顶部居中 ↔ 跟随光标，立即生效并持久化
+- **开机自启** — macOS 写入 LaunchAgent / Windows 写入注册表 Run 键
 - **退出** — 退出前自动落盘历史
 
 ## 配置（settings.json）
 
-配置文件路径：`~/Library/Application Support/com.mdy.clipmate/settings.json`
-首次启动自动生成，缺失或非法字段自动回退默认值。
+配置文件路径（首次启动自动生成，缺失或非法字段自动回退默认值）：
+
+- macOS：`~/Library/Application Support/com.mdy.clipmate/settings.json`
+- Windows：`%APPDATA%\com.mdy.clipmate\settings.json`
 
 | 字段 | 取值 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `hotkey` | 字符串 | `"F2"` | 全局唤起热键，`global-hotkey` 语法，如 `"CommandOrControl+Shift+V"` |
-| `theme` | `"dark"` / `"light"` | `"dark"` | 主题；菜单栏切换会自动写回 |
+| `theme` | `"dark"` / `"light"` | `"dark"` | 主题；菜单切换会自动写回 |
+| `panel_position` | `"fixed"` / `"cursor"` | `"fixed"` | 面板弹出位置：光标所在屏幕顶部居中 / 贴光标 |
 
 历史数据：同目录 `history.jsonl`（文本条目，图片仅保留在内存中）。
 
 ## 首次使用：授权
+
+> 本节仅适用于 macOS。Windows 的 SendInput 粘贴**无需任何权限**，装好即用。
 
 粘贴到其他应用需要 macOS **辅助功能** 权限。ClipMate 会在启动时自动请求一次（系统弹窗）。如果设置列表里找不到 ClipMate（ad-hoc 重签名会导致旧条目失效）：
 
@@ -109,10 +141,36 @@ tccutil reset Accessibility com.mdy.clipmate
 - **过滤**：搜索时输入「图片」「image」「img」「png」可筛选图片
 - **限制**：单条文本最大 2 MB，单张图片最大 8 MB，最多保留 300 条
 - **不记录**：剪贴板上的「文件」、「空白内容」会跳过
-- **面板定位**：优先跟随文本插入点（caret），其次焦点元素，最后鼠标位置
+- **面板定位**：`fixed` 模式在光标所在屏幕顶部居中；`cursor` 模式优先跟随文本插入点（caret），其次焦点元素，最后鼠标位置
 - **测试模式**：`CLIPMATE_TEST_CENTER=1` 环境变量让面板固定在主屏中央（便于截图/调试）
 
+## 平台差异
+
+| 能力 | macOS | Windows |
+| --- | --- | --- |
+| 粘贴模拟 | CGEvent Cmd+V（需辅助功能授权） | SendInput Ctrl+V（无需授权） |
+| 常驻入口 | 菜单栏 NSStatusItem | 系统托盘（Tauri 2 TrayIcon） |
+| 面板焦点 | non-activating NSPanel，从不抢焦点 | 面板显示时正常激活，粘贴前 SetForegroundWindow 拉回目标应用 |
+| 剪贴板监听 | NSPasteboard changeCount 轮询 | GetClipboardSequenceNumber 轮询 |
+| 开机自启 | LaunchAgent plist | `HKCU\...\CurrentVersion\Run` 注册表值 |
+| 安装包 | .app / .dmg | NSIS 安装程序 |
+
+两个平台的对外接口（commands / 设置项 / 快捷键）完全一致。
+
 ## 发布打包
+
+### macOS：正式发布（Developer ID 签名 + 公证）
+
+需要 Apple Developer 账号，一条命令完成构建、签名、dmg、公证、staple：
+
+```bash
+CLIPMATE_TEAM_ID=XXXXXXXXXX bash scripts/release.sh
+# 产物：dist/ClipMate-<version>.dmg
+```
+
+一次性准备（证书、notarytool 凭据）见 [RELEASING.md](RELEASING.md)。
+
+### macOS：本地打包 dmg（无开发者账号，ad-hoc 签名）
 
 ```bash
 cd app
@@ -134,7 +192,13 @@ hdiutil create -volname "ClipMate" -srcfolder dmg_staging -ov -format UDZO ClipM
 rm -rf dmg_staging
 ```
 
-产物集中到 `dist/`：`ClipMate.app` + `ClipMate.dmg`（含「拖到 Applications」引导）。
+### Windows：打包 NSIS 安装程序
+
+```powershell
+cd ui; npm install; npm run build
+cd ../app
+npx -y @tauri-apps/cli@2 build   # 产物：target\release\bundle\nsis\ClipMate_<version>_x64-setup.exe
+```
 
 ## 项目结构
 
@@ -142,19 +206,26 @@ rm -rf dmg_staging
 clipmate/
 ├── app/
 │   ├── Cargo.toml / tauri.conf.json / build.rs
-│   └── src/
+│   ├── Entitlements.plist / PrivacyInfo.xcprivacy   # macOS 发布签名材料
+│   └── src/                       # 平台代码均为 mod macos_impl / windows_impl 成对实现
 │       ├── main.rs        # 薄入口、settings.json 读写
 │       ├── model.rs       # 数据模型 + 去重/上限纯逻辑（含单测）
-│       ├── clipboard.rs   # NSPasteboard 轮询捕获
-│       ├── paste.rs       # Cmd+V 模拟 + AX 权限
-│       ├── panel.rs       # NSPanel 焦点模型 + caret 定位
+│       ├── clipboard.rs   # 剪贴板变化检测（changeCount / SequenceNumber）
+│       ├── paste.rs       # 粘贴模拟 + 焦点管理（CGEvent / SendInput）
+│       ├── panel.rs       # 面板窗口与定位（NSPanel / WS_EX_TOOLWINDOW）
 │       ├── commands.rs    # Tauri commands
 │       ├── storage.rs     # JSONL 持久化
-│       ├── menubar.rs     # NSStatusItem 菜单
-│       └── autostart.rs   # LaunchAgent 开机自启
+│       ├── menubar.rs     # macOS 菜单栏 / Windows 系统托盘
+│       └── autostart.rs   # 开机自启（LaunchAgent / 注册表 Run）
 ├── ui/                    # Vue 3 + Vite 前端（App.vue + style.css）
 ├── scripts/
-│   ├── dev-build.sh       # 秒级增量构建 + 签名
+│   ├── dev-build.sh       # macOS 秒级增量构建 + 签名
+│   ├── release.sh         # macOS 一键发布（Developer ID 签名 + 公证 + dmg）
 │   └── setup-codesign.sh  # 生成固定签名证书
-└── CHANGELOG.md
+├── CHANGELOG.md
+└── RELEASING.md           # 发布指南（为什么不上 App Store 等）
 ```
+
+## 版本历史
+
+见 [CHANGELOG.md](CHANGELOG.md)。

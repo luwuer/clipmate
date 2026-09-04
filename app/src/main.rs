@@ -1,13 +1,13 @@
-//! ClipMate — macOS 剪贴板历史工具（CleanClip 风格）
-//! Tauri 2 + Rust 后端 + vanilla JS 前端。
+//! ClipMate — 跨平台剪贴板历史工具（macOS / Windows，CleanClip 风格）
+//! Tauri 2 + Rust 后端 + Vue 3 前端。
 //!
-//! R7 模块拆分（纯移动，零行为变化）：
+//! R7 模块拆分（纯移动，零行为变化）；W1 Windows 移植：平台代码为 macos_impl / windows_impl 成对实现
 //! - model.rs     数据模型 + 去重/上限纯逻辑 + png 编解码 + 单测
-//! - clipboard.rs NSPasteboard changeCount 轮询 + 捕获
-//! - paste.rs     CGEvent Cmd+V 模拟 + AX 辅助（只读）+ frontmost/activate
-//! - panel.rs     non-activating NSPanel 转换/显示/定位 + 点击外部关闭
+//! - clipboard.rs 剪贴板变化检测（NSPasteboard changeCount / GetClipboardSequenceNumber）
+//! - paste.rs     粘贴模拟 + 焦点管理（CGEvent Cmd+V / SendInput Ctrl+V）
+//! - panel.rs     面板窗口与定位（NSPanel / WS_EX_TOOLWINDOW）+ 点击外部关闭
 //! - commands.rs  tauri commands（get_history/select/copy/delete/pin/…）
-//! - storage.rs   JSONL 持久化（R1）/ menubar.rs 菜单栏（R3）——此前已独立
+//! - storage.rs   JSONL 持久化（R1）/ menubar.rs 菜单栏与托盘（R3）——此前已独立
 //! - main.rs      本文件：builder + setup + 快捷键配置
 
 mod autostart;

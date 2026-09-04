@@ -20,3 +20,4 @@ scripts/certs/*.key
 
 # loop runner ledger (untracked, like runtime state)
 .loop/
+.workbuddy
