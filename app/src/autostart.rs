@@ -238,7 +238,7 @@ mod windows_impl {
                 return None;
             }
             let len = (cb as usize / 2).min(buf.len());
-            let s: String = buf[..len].iter().collect();
+            let s = String::from_utf16_lossy(&buf[..len]);
             Some(s.trim_end_matches('\0').to_string())
         }
     }

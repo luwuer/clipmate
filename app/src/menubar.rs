@@ -343,26 +343,17 @@ mod windows_impl {
             quit,
         ) {
             (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e)) => (a, b, c, d, e),
-            Err(e) => {
+            (Err(e), ..)
+            | (_, Err(e), ..)
+            | (_, _, Err(e), ..)
+            | (_, _, _, Err(e), _)
+            | (_, _, _, _, Err(e)) => {
                 eprintln!("[clipmate] tray menu item create failed: {e}");
                 return;
             }
         };
 
-        let menu = Menu::with_items(
-            &app,
-            &[
-                &show,
-                &theme,
-                &autostart,
-                &position,
-                &PredefinedMenuItem::separator(&app).unwrap_or_else(|_| {
-                    // 分隔符创建失败不致命：用零宽文本项占位保住菜单结构
-                    MenuItem::with_id(&app, "sep", "", false, None::<&str>).unwrap()
-                }),
-                &quit,
-            ],
-        );
+        let menu = Menu::with_items(&app, &[&show, &theme, &autostart, &position]);
         let menu = match menu {
             Ok(m) => m,
             Err(e) => {
@@ -370,6 +361,13 @@ mod windows_impl {
                 return;
             }
         };
+        // 分隔符 + 退出项：separator 创建失败不致命（跳过分隔符继续）
+        if let Ok(sep) = PredefinedMenuItem::separator(&app) {
+            let _ = menu.append(&sep);
+        }
+        if let Err(e) = menu.append(&quit) {
+            eprintln!("[clipmate] tray append quit item failed: {e}");
+        }
 
         // 勾选态实时更新需要 CheckMenuItem 句柄（v2 menu 类型 Send+Sync，可进闭包）
         let autostart_item = autostart.clone();

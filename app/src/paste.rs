@@ -323,7 +323,8 @@ mod windows_impl {
 
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
         VIRTUAL_KEY, VK_CONTROL,
@@ -423,7 +424,7 @@ mod windows_impl {
         let hwnd = HWND(hwnd_addr as *mut core::ffi::c_void);
         let mut rect = windows::Win32::Foundation::RECT::default();
         unsafe {
-            if !GetWindowRect(hwnd, &mut rect).as_bool() {
+            if GetWindowRect(hwnd, &mut rect).is_err() {
                 return false;
             }
         }
