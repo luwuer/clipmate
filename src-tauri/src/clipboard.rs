@@ -1,11 +1,11 @@
 //! 剪贴板监听与捕获（R7 从 main.rs 拆出，零行为变化）
 //! NSPasteboard changeCount 轮询(200ms) → capture → 去重入库(enforce_limit)
+//!
+//! W1 Windows 移植：pasteboard_change_count 换用 GetClipboardSequenceNumber，
+//! 语义与 macOS changeCount 完全一致（剪贴板每次变化单调递增），轮询/去重逻辑零改动。
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-
-use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
 
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -14,15 +14,26 @@ use crate::model::{
 };
 use crate::storage;
 
-// ---------- macOS pasteboard change count (raw objc2) ----------
+// ---------- 剪贴板变化计数（平台实现） ----------
 
+/// macOS：NSPasteboard changeCount（raw objc2）
+#[cfg(target_os = "macos")]
 pub(crate) fn pasteboard_change_count() -> i64 {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+
     unsafe {
         let cls = objc2::runtime::AnyClass::get(c"NSPasteboard").expect("NSPasteboard class missing");
         let pb: Retained<AnyObject> = objc2::msg_send![cls, generalPasteboard];
         let count: isize = objc2::msg_send![&*pb, changeCount];
         count as i64
     }
+}
+
+/// Windows：GetClipboardSequenceNumber（同样单调递增，无需打开剪贴板）
+#[cfg(target_os = "windows")]
+pub(crate) fn pasteboard_change_count() -> i64 {
+    unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() as i64 }
 }
 
 fn capture_item(state: &AppState, clipboard: &mut arboard::Clipboard) -> Option<ClipboardItem> {

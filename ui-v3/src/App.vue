@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -13,6 +13,66 @@ const titlebarDragging = ref(false);
 // R19 多选状态机：selected=已选 id 集合，anchorIndex=Shift 扩展锚点（null=无锚点）
 const selected = ref(new Set());
 const anchorIndex = ref(null);
+
+// ---------- 右侧详情面板 ----------
+
+const detail = ref(null);
+const activeItem = computed(() => items.value[activeIndex.value] || null);
+// 异步防串扰：快速移动高亮时只保留最后一次请求的结果
+let detailSeq = 0;
+async function loadDetail() {
+  const it = activeItem.value;
+  if (!it) {
+    detail.value = null;
+    return;
+  }
+  const seq = ++detailSeq;
+  try {
+    const d = await invoke("get_item_detail", { id: it.id });
+    if (seq === detailSeq) detail.value = d;
+  } catch (e) {
+    if (seq === detailSeq) detail.value = null;
+  }
+}
+// activeIndex（键盘/鼠标高亮）与 items（刷新/重排）任一变化都重新拉详情
+watch([activeIndex, items], loadDetail, { immediate: true });
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+async function pasteDetail() {
+  if (detail.value) select(detail.value.id);
+}
+
+async function copyDetail() {
+  if (!detail.value) return;
+  try {
+    await invoke("copy_item", { id: detail.value.id });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function togglePinDetail() {
+  if (!detail.value) return;
+  await invoke("toggle_pin", { id: detail.value.id });
+  await refresh(true);
+}
+
+async function deleteDetail() {
+  if (!detail.value) return;
+  await invoke("delete_item", { id: detail.value.id });
+  await refresh();
+}
 
 function relTime(ts) {
   const diff = Date.now() - ts;
@@ -137,6 +197,23 @@ async function clearAll() {
   await refresh();
 }
 
+// ---------- 搜索防抖：停顿 250ms 才触发；IME 组合中（中文输入）不触发 ----------
+
+let searchTimer = null;
+let composing = false;
+function onQueryInput() {
+  if (composing) return;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => refresh(), 250);
+}
+function onCompositionStart() {
+  composing = true;
+}
+function onCompositionEnd() {
+  composing = false;
+  onQueryInput();
+}
+
 // ---------- keyboard / focus ----------
 
 function onKeydown(e) {
@@ -201,6 +278,19 @@ function onBlur() {
 }
 function onFocus() {
   clearTimeout(blurHideTimer);
+}
+
+// 面板重新显示时把列表滚回顶部：隐藏期间 DOM 存活，上次的 scrollTop 残留在中间；
+// scrollIntoView 在 webview 刚恢复渲染时可能被忽略（与 DOM focus 失败同理），
+// 直接写 scrollTop 并延迟重试兜底
+function resetListScroll(retry = 0) {
+  if (listEl.value) {
+    // 强制 reflow：transparent 窗口 orderOut→makeKeyAndOrderFront 回来时 WKWebView
+    // 可能缓存了旧的合成层（导致 .item 存在但不绘制），读 offsetHeight 触发同步布局
+    void listEl.value.offsetHeight;
+    listEl.value.scrollTop = 0;
+  }
+  if (retry > 0) setTimeout(() => resetListScroll(retry - 1), 50);
 }
 
 // 面板刚显示时 webview 可能尚未真正成 key，DOM focus 会失败，重试几次
@@ -273,6 +363,7 @@ onMounted(async () => {
       activeIndex.value = 0;
       clearSelection();
       await refresh();
+      resetListScroll(4);
       focusSearch(4);
     }),
   );
@@ -280,6 +371,7 @@ onMounted(async () => {
   await refresh();
 });
 onBeforeUnmount(() => {
+  clearTimeout(searchTimer);
   document.removeEventListener("keydown", onKeydown);
   window.removeEventListener("blur", onBlur);
   window.removeEventListener("focus", onFocus);
@@ -306,46 +398,93 @@ onBeforeUnmount(() => {
         placeholder="搜索剪贴板历史…"
         autocomplete="off"
         spellcheck="false"
-        @input="refresh()"
+        @input="onQueryInput"
+        @compositionstart="onCompositionStart"
+        @compositionend="onCompositionEnd"
       />
       <button class="icon-btn" title="清空历史" @click="clearAll">⌫</button>
     </div>
 
-    <div v-show="items.length" ref="listEl" class="list">
-      <div
-        v-for="(it, i) in items"
-        :key="it.id"
-        class="item"
-        :class="{ active: i === activeIndex, pinned: it.pinned, selected: selected.has(it.id) }"
-        @click="onItemClick($event, it, i)"
-        @mouseenter="setActive(i)"
-      >
-        <div class="item-icon">
-          <span v-if="selected.has(it.id)" class="item-check">✓</span>
-          <template v-else>
-            <img v-if="it.type === 'image'" :src="it.image" alt="" />
-            <template v-else>T</template>
-          </template>
+    <div class="body-row">
+      <div class="list-side">
+        <div v-show="items.length" ref="listEl" class="list">
+          <div
+            v-for="(it, i) in items"
+            :key="it.id"
+            class="item"
+            :class="{ active: i === activeIndex, pinned: it.pinned, selected: selected.has(it.id) }"
+            @click="onItemClick($event, it, i)"
+            @mouseenter="setActive(i)"
+          >
+            <div class="item-icon">
+              <span v-if="selected.has(it.id)" class="item-check">✓</span>
+              <template v-else>
+                <img v-if="it.type === 'image'" :src="it.image" alt="" />
+                <template v-else>T</template>
+              </template>
+            </div>
+            <div class="item-body">
+              <div class="item-text">{{ it.type === "image" ? "图片" : it.text }}</div>
+              <div class="item-meta">{{ metaOf(it) }}</div>
+            </div>
+            <button
+              class="item-pin"
+              :title="it.pinned ? '取消置顶' : '置顶该项（⌘P）'"
+              @click.stop="togglePin(it)"
+            >
+              {{ it.pinned ? "★" : "☆" }}
+            </button>
+            <button class="item-del" title="删除该记录" @click.stop="deleteItem(it)">✕</button>
+          </div>
         </div>
-        <div class="item-body">
-          <div class="item-text">{{ it.type === "image" ? "图片" : it.text }}</div>
-          <div class="item-meta">{{ metaOf(it) }}</div>
-        </div>
-        <button
-          class="item-pin"
-          :title="it.pinned ? '取消置顶' : '置顶该项（⌘P）'"
-          @click.stop="togglePin(it)"
-        >
-          {{ it.pinned ? "★" : "☆" }}
-        </button>
-        <button class="item-del" title="删除该记录" @click.stop="deleteItem(it)">✕</button>
-      </div>
-    </div>
 
-    <div v-show="!items.length" class="empty">
-      <div class="empty-icon">📋</div>
-      <div>暂无复制记录</div>
-      <div class="empty-sub">复制点内容，然后按 F2 唤起</div>
+        <div v-show="!items.length" class="empty">
+          <div class="empty-icon">📋</div>
+          <div>暂无复制记录</div>
+          <div class="empty-sub">复制点内容，然后按 F2 唤起</div>
+        </div>
+      </div>
+
+      <div v-if="items.length" class="detail">
+        <template v-if="detail">
+          <div class="detail-head">
+            <span class="detail-badge">{{ detail.type === "image" ? "图片" : "文本" }}</span>
+            <span v-if="detail.pinned" class="detail-pinned">★ 已置顶</span>
+          </div>
+
+          <div class="detail-content">
+            <img v-if="detail.type === 'image'" class="detail-image" :src="detail.image" alt="" />
+            <pre v-else class="detail-text">{{ detail.text }}</pre>
+          </div>
+
+          <div class="detail-meta">
+            <div v-if="detail.type === 'text'" class="meta-row">
+              <span>字符数</span><span>{{ detail.chars }}</span>
+            </div>
+            <div v-if="detail.type === 'text'" class="meta-row">
+              <span>行数</span><span>{{ detail.lines }}</span>
+            </div>
+            <div v-if="detail.type === 'image'" class="meta-row">
+              <span>尺寸</span><span>{{ detail.width }} × {{ detail.height }}</span>
+            </div>
+            <div class="meta-row">
+              <span>大小</span><span>{{ fmtBytes(detail.bytes) }}</span>
+            </div>
+            <div class="meta-row">
+              <span>复制时间</span><span>{{ fmtTime(detail.time) }}</span>
+            </div>
+          </div>
+
+          <div class="detail-actions">
+            <button class="action-btn primary" @click="pasteDetail">粘贴</button>
+            <button class="action-btn" @click="copyDetail">复制</button>
+            <button class="action-btn" @click="togglePinDetail">
+              {{ detail.pinned ? "取消置顶" : "置顶" }}
+            </button>
+            <button class="action-btn danger" @click="deleteDetail">删除</button>
+          </div>
+        </template>
+      </div>
     </div>
 
     <div class="footer">

@@ -45,6 +45,68 @@ fn to_dto(it: &ClipboardItem) -> ItemDto {
     }
 }
 
+/// 详情 DTO：与列表 ItemDto 的差异是 text 不截断，且附带统计信息（字符/行/字节）
+#[derive(serde::Serialize)]
+pub(crate) struct DetailDto {
+    id: u64,
+    #[serde(rename = "type")]
+    item_type: &'static str,
+    pinned: bool,
+    time: u64,
+    text: Option<String>,  // 完整文本（不截断）
+    chars: Option<usize>,  // 字符数（按 Unicode 标量计）
+    lines: Option<usize>,  // 行数
+    bytes: usize,          // 文本=UTF-8 字节数；图片=PNG 体积
+    image: Option<String>, // data url（完整图）
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+fn to_detail(it: &ClipboardItem) -> DetailDto {
+    match &it.kind {
+        ItemKind::Text(t) => DetailDto {
+            id: it.id,
+            item_type: "text",
+            pinned: it.pinned,
+            time: it.created_at,
+            chars: Some(t.chars().count()),
+            lines: Some(t.lines().count()),
+            bytes: t.len(),
+            text: Some(t.clone()),
+            image: None,
+            width: None,
+            height: None,
+        },
+        ItemKind::Image { png, width, height } => DetailDto {
+            id: it.id,
+            item_type: "image",
+            pinned: it.pinned,
+            time: it.created_at,
+            chars: None,
+            lines: None,
+            bytes: png.len(),
+            text: None,
+            image: Some(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(png)
+            )),
+            width: Some(*width),
+            height: Some(*height),
+        },
+    }
+}
+
+/// 单条详情：右侧详情面板数据源（列表项仅含 300 字符预览）
+#[tauri::command]
+pub(crate) fn get_item_detail(state: State<'_, AppState>, id: u64) -> Result<DetailDto, String> {
+    let items = state.items.lock().unwrap();
+    let it = items
+        .iter()
+        .find(|it| it.id == id)
+        .ok_or_else(|| "item not found".to_string())?;
+    Ok(to_detail(it))
+}
+
 #[tauri::command]
 pub(crate) fn get_history(state: State<'_, AppState>, query: String) -> Vec<ItemDto> {
     let items = state.items.lock().unwrap();
@@ -275,14 +337,18 @@ pub(crate) fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) fn open_accessibility_settings() {
-    // 先触发一次系统请求弹窗（即使之前拒绝过也再试一次，让 ClipMate 出现在列表里）
-    let _ = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(r#"tell application "System Events" to keystroke "" "#)
-        .spawn();
-    ax_trusted(true);
-    // 同时打开辅助功能设置页（双 URL 兼容 macOS 13/15）
-    crate::paste::open_accessibility_settings_page();
+    // Windows 无辅助功能权限概念（SendInput 无需授权），空实现保持命令签名不变
+    #[cfg(target_os = "macos")]
+    {
+        // 先触发一次系统请求弹窗（即使之前拒绝过也再试一次，让 ClipMate 出现在列表里）
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(r#"tell application "System Events" to keystroke "" "#)
+            .spawn();
+        ax_trusted(true);
+        // 同时打开辅助功能设置页（双 URL 兼容 macOS 13/15）
+        crate::paste::open_accessibility_settings_page();
+    }
 }
 
 #[tauri::command]

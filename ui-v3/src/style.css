@@ -97,6 +97,11 @@ body {
   overflow: hidden;
   color: var(--text);
   box-shadow: var(--panel-shadow);
+  /* transparent 窗口 + border-radius/overflow:hidden 在 WKWebView 下会让子级滚动容器
+     滚动后不再刷新绘制。给 panel 自身强制独立合成层 + 新堆叠上下文可断绝此 bug */
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
 }
 
 /* ---- titlebar（可拖拽）---- */
@@ -162,11 +167,148 @@ body {
   color: var(--icon-btn-hover-text);
 }
 
+/* ---- body row：左列表 + 右详情 ---- */
+.body-row {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.list-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  contain: paint;
+}
+
+/* ---- detail pane ---- */
+.detail {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+}
+.detail-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+}
+.detail-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-active-bg);
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+.detail-pinned {
+  font-size: 11px;
+  color: var(--pin);
+}
+.detail-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px;
+}
+.detail-content::-webkit-scrollbar {
+  width: 6px;
+}
+.detail-content::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 3px;
+}
+.detail-text {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.detail-image {
+  max-width: 100%;
+  border-radius: 6px;
+  background: var(--item-icon-bg);
+}
+.detail-meta {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+.meta-row span:first-child {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.meta-row span:last-child {
+  color: var(--text-dim);
+  text-align: right;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.detail-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 10px;
+}
+.action-btn {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--icon-btn-bg);
+  color: var(--icon-btn-text);
+}
+.action-btn:hover {
+  background: var(--icon-btn-hover-bg);
+  color: var(--icon-btn-hover-text);
+}
+.action-btn.primary {
+  background: var(--accent);
+  color: #fff;
+}
+.action-btn.primary:hover {
+  filter: brightness(1.1);
+  color: #fff;
+}
+.action-btn.danger:hover {
+  background: var(--del-hover-bg);
+  color: var(--del-hover-text);
+}
+
 /* ---- list ---- */
 .list {
   flex: 1;
   overflow-y: auto;
   padding: 0 8px 8px;
+  /* 修 transparent + 父级 border-radius/overflow:hidden 下的 WKWebView 合成 bug——
+     滚动后 .item 不绘制（实际有但合成层未刷新）。多层兜底：
+     ① transform 强制独立合成层；
+     ② contain:paint 切断与父级的 paint 包含关系（让 WKWebView 重新计算 clip）；
+     ③ will-change 提示浏览器保留该层以避免下次滚动再退化 */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: transform;
+  contain: paint;
 }
 .list::-webkit-scrollbar {
   width: 6px;

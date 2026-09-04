@@ -32,6 +32,44 @@ use tauri_plugin_global_shortcut::ShortcutState;
 
 const DEFAULT_HOTKEY: &str = "F2"; // 配置缺失/非法时回退
 pub(crate) const DEFAULT_THEME: &str = "dark"; // theme 缺失/非法时回退
+/// 面板位置模式："fixed"（光标所在屏幕顶部居中）| "cursor"（贴光标，旧行为）
+pub(crate) const DEFAULT_PANEL_POSITION: &str = "fixed";
+
+/// 读取 settings.json 的 panel_position 字段（"fixed"|"cursor"）；缺失/非法回退 DEFAULT_PANEL_POSITION
+pub(crate) fn read_panel_position_from_settings(data_dir: &std::path::Path) -> String {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return DEFAULT_PANEL_POSITION.to_string();
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&content) else {
+        return DEFAULT_PANEL_POSITION.to_string();
+    };
+    match v.get("panel_position").and_then(|x| x.as_str()) {
+        Some("cursor") => "cursor".to_string(),
+        _ => DEFAULT_PANEL_POSITION.to_string(),
+    }
+}
+
+/// 写入 panel_position 到 settings.json，保留其他字段
+pub(crate) fn write_panel_position_to_settings(data_dir: &std::path::Path, mode: &str) {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut v: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(
+            "panel_position".to_string(),
+            Value::String(mode.to_string()),
+        );
+    }
+    let _ = std::fs::write(&path, v.to_string());
+}
 
 /// 读取 settings.json 的 theme 字段（"dark"|"light"）；缺失/非法返回 DEFAULT_THEME
 pub(crate) fn read_theme_from_settings(data_dir: &std::path::Path) -> String {
@@ -109,6 +147,7 @@ fn main() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::get_history,
+            commands::get_item_detail,
             commands::select_item,
             commands::batch_select,
             commands::batch_delete,
