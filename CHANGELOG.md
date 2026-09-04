@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.1] - 2026-09-05
+
+Windows 支持首发 + GitHub 双平台 CI 发布链路。
+
+### 功能
+
+- **Windows 支持**（R22）：全功能原生实现——剪贴板监听（GetClipboardSequenceNumber）、粘贴（SendInput Ctrl+V，无需授权）、系统托盘（Tauri 2 TrayIcon）、开机自启（HKCU Run 注册表）、NSIS 安装包；与 macOS 对外接口（commands / 设置项 / 快捷键）完全一致
+- **GitHub Actions 双平台 CI**：push main 产出 artifact（Windows NSIS + macOS Universal DMG），push tag `v*` 自动发布 Release（稳定文件名 `ClipMate_x64-setup.exe` / `ClipMate_universal.dmg`）
+- **GitHub Pages 产品页**：`docs/index.html`，平台自动识别下载入口
+
+### 修复
+
+- `release.sh`：`tauri build --manifest-path` 参数不存在（CLI 无此参数），改为在 `app/` 目录内运行
+- windows crate 0.61 适配：`BOOL` 迁移至 `windows::core`、`GetWindowRect` 返回 `Result`、`Win32_System_Registry`/`Win32_Security` feature 补全
+
 ## [0.2.0] - 2026-08-18
 
 从 v0.1.0 起步的 21 轮迭代（R1–R21）全部合入，涵盖持久化、前端重写、主题系统、多选批量与开机自启。

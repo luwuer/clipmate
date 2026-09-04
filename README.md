@@ -2,6 +2,9 @@
 
 一个极简的**跨平台剪贴板历史工具**（macOS / Windows）：按下热键唤起面板，方向键选择，回车粘贴回当前应用。
 
+> 📥 **下载安装**：[GitHub Releases](https://github.com/luwuer/clipmate/releases/latest)（macOS Universal DMG / Windows NSIS 安装包）· [产品主页](https://luwuer.github.io/clipmate/)
+> 🏗️ 每次打 tag `v*` 由 [GitHub Actions](.github/workflows/build.yml) 自动构建双平台并发布。
+
 > 双平台均为原生实现：macOS 用 NSPanel / CGEvent / AX API，Windows 用 SendInput / 系统托盘 / 注册表自启，差异详见[平台差异](#平台差异)。不上架 App Store 的原因见 [RELEASING.md](RELEASING.md)。
 
 ## 目录
