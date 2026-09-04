@@ -90,6 +90,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 创建/上传 Release 资产
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
