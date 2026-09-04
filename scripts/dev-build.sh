@@ -4,16 +4,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "→ 构建前端 ui-v3 (vite)…"
-cd ui-v3
+echo "→ 构建前端 ui (vite)…"
+cd ui
 if [ ! -d node_modules ]; then
   npm install --registry=https://registry.npmmirror.com
 fi
 npm run build
-cd ../src-tauri
+cd ../app
 
 echo "→ cargo build (debug, 增量)…"
-touch build.rs  # force generate_context! 重新读取 ui-v3/dist 嵌入前端
+touch build.rs  # force generate_context! 重新读取 ui/dist 嵌入前端
 cargo build
 
 APP="../dist/ClipMate.app"

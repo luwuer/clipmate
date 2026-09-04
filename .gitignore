@@ -1,6 +1,6 @@
 # build artifacts
-src-tauri/target/
-src-tauri/gen/schemas/
+app/target/
+app/gen/schemas/
 
 # distribution output
 dist/

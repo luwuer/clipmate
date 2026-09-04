@@ -30,7 +30,7 @@
 ## 技术栈
 
 - **Tauri 2** + **Rust**：后端逻辑、全局热键、剪贴板监听、Cmd+V 模拟、NSPanel 焦点模型
-- **Vue 3 + Vite**：前端面板（ui-v3/）
+- **Vue 3 + Vite**：前端面板（ui/）
 - 依赖：arboard（剪贴板读写）、core-graphics（CGEvent）、png、objc2（NSStatusItem / NSPanel）、tauri-plugin-global-shortcut
 
 ## 快速开始
@@ -115,7 +115,7 @@ tccutil reset Accessibility com.mdy.clipmate
 ## 发布打包
 
 ```bash
-cd src-tauri
+cd app
 cargo build --release
 npx -y @tauri-apps/cli@2 build   # 必须锁 v2（v3 schema 不兼容）
 
@@ -140,7 +140,7 @@ rm -rf dmg_staging
 
 ```
 clipmate/
-├── src-tauri/
+├── app/
 │   ├── Cargo.toml / tauri.conf.json / build.rs
 │   └── src/
 │       ├── main.rs        # 薄入口、settings.json 读写
@@ -152,8 +152,7 @@ clipmate/
 │       ├── storage.rs     # JSONL 持久化
 │       ├── menubar.rs     # NSStatusItem 菜单
 │       └── autostart.rs   # LaunchAgent 开机自启
-├── ui-v3/                 # Vue 3 + Vite 前端（App.vue + style.css）
-├── ui/                    # 旧 vanilla JS 前端（保留参考）
+├── ui/                    # Vue 3 + Vite 前端（App.vue + style.css）
 ├── scripts/
 │   ├── dev-build.sh       # 秒级增量构建 + 签名
 │   └── setup-codesign.sh  # 生成固定签名证书

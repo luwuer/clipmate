@@ -41,7 +41,7 @@ CLIPMATE_TEAM_ID=XXXXXXXXXX bash scripts/release.sh
 ```bash
 # 签名验证
 codesign --verify --deep --strict dist/ClipMate.app 2>/dev/null || \
-  codesign --verify --deep --strict src-tauri/target/release/bundle/macos/ClipMate.app
+  codesign --verify --deep --strict app/target/release/bundle/macos/ClipMate.app
 # 公证验证
 spctl -a -vv -t install dist/ClipMate-0.2.0.dmg
 ```
@@ -50,10 +50,10 @@ spctl -a -vv -t install dist/ClipMate-0.2.0.dmg
 
 | 文件 | 用途 |
 |---|---|
-| `src-tauri/Entitlements.plist` | 签名 entitlements（非沙盒分发必需） |
-| `src-tauri/PrivacyInfo.xcprivacy` | Apple 隐私清单（2024 起要求）：声明剪贴板访问用途、不追踪、本地存储 |
+| `app/Entitlements.plist` | 签名 entitlements（非沙盒分发必需） |
+| `app/PrivacyInfo.xcprivacy` | Apple 隐私清单（2024 起要求）：声明剪贴板访问用途、不追踪、本地存储 |
 | `scripts/release.sh` | 一键发布脚本（签名+公证+打包） |
-| `src-tauri/icons/` | 全套应用图标（icns/png） |
+| `app/icons/` | 全套应用图标（icns/png） |
 
 ## 如果你仍想上 App Store（不建议）
 

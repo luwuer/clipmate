@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 TEAM_ID="${CLIPMATE_TEAM_ID:-}"
 SIGN_IDENTITY="${CLIPMATE_SIGN_IDENTITY:-Developer ID Application}"
 NOTARY_PROFILE="${CLIPMATE_NOTARY_PROFILE:-clipmate-notary}"
-VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+VERSION=$(grep '"version"' app/tauri.conf.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
 
 if [ -z "$TEAM_ID" ]; then
   echo "❌ 未配置 TEAM_ID。用法：CLIPMATE_TEAM_ID=XXXXXXXXXX bash scripts/release.sh"
@@ -24,16 +24,16 @@ if [ -z "$TEAM_ID" ]; then
 fi
 
 echo "==> 1/5 release 构建"
-cargo build --release --manifest-path src-tauri/Cargo.toml
-npx -y @tauri-apps/cli@2 build --manifest-path src-tauri/Cargo.toml 2>&1 | tail -2
+cargo build --release --manifest-path app/Cargo.toml
+npx -y @tauri-apps/cli@2 build --manifest-path app/Cargo.toml 2>&1 | tail -2
 
-APP="src-tauri/target/release/bundle/macos/ClipMate.app"
+APP="app/target/release/bundle/macos/ClipMate.app"
 DMG_OUT="dist/ClipMate-${VERSION}.dmg"
 
 echo "==> 2/5 Developer ID 签名（$SIGN_IDENTITY）"
 # 嵌套 entitlements + privacy manifest
-cp src-tauri/Entitlements.plist /tmp/clipmate-ent.plist
-cp src-tauri/PrivacyInfo.xcprivacy "$APP/Contents/PrivacyInfo.xcprivacy" 2>/dev/null || true
+cp app/Entitlements.plist /tmp/clipmate-ent.plist
+cp app/PrivacyInfo.xcprivacy "$APP/Contents/PrivacyInfo.xcprivacy" 2>/dev/null || true
 codesign --force --deep --options runtime \
   --entitlements /tmp/clipmate-ent.plist \
   --sign "$SIGN_IDENTITY" \
