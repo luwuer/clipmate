@@ -37,7 +37,10 @@ jobs:
 
       - name: Build Tauri app (NSIS x64)
         # bundle.targets 里 nsis 适用 Windows；app（macOS）自动跳过
-        run: npx -y @tauri-apps/cli@2 build --manifest-path app/tauri.conf.json
+        # 注意：tauri CLI 没有 --manifest-path 参数（那是 cargo 的），
+        # 正确方式是在 tauri 目录（app/）里直接运行，让 CLI 自动发现 tauri.conf.json
+        working-directory: app
+        run: npx -y @tauri-apps/cli@2 build
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

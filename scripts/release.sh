@@ -25,7 +25,8 @@ fi
 
 echo "==> 1/5 release 构建"
 cargo build --release --manifest-path app/Cargo.toml
-npx -y @tauri-apps/cli@2 build --manifest-path app/Cargo.toml 2>&1 | tail -2
+# 注意：tauri CLI 没有 --manifest-path 参数，需在 tauri 目录（app/）内运行
+(cd app && npx -y @tauri-apps/cli@2 build 2>&1 | tail -2)
 
 APP="app/target/release/bundle/macos/ClipMate.app"
 DMG_OUT="dist/ClipMate-${VERSION}.dmg"
