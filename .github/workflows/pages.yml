@@ -27,6 +27,9 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # 仓库未手动开启 Pages 时自动启用（需本 workflow 的 pages: write 权限）
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

@@ -57,7 +57,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Setup Rust (universal: aarch64 + x86_64)
+      - name: "Setup Rust (universal: aarch64 + x86_64)"
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
