@@ -178,7 +178,10 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  contain: paint;
+  /* 注意：这里不要加 contain: paint——双层 contain（父+子 .list）会在 NSPanel
+     orderOut→makeKeyAndOrderFront 后让 WKWebView 缓存左侧整片 paint 层不刷新，
+     表现为"关闭再打开面板左侧白屏"（右侧 .detail 无 contain 故不受影响）。
+     滚动合成 bug 的防护由 .list 自身的 transform/will-change/contain 三件套承担 */
 }
 
 /* ---- detail pane ---- */
