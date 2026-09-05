@@ -25,11 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 注意：不能用 enablement: true —— GitHub 平台禁止 GITHUB_TOKEN 调用
+      # Create Pages site API（2022 安全策略，workflow 权限声明无效）。
+      # 需在仓库 Settings → Pages → Source 选 "GitHub Actions" 手动开启一次。
       - name: Setup Pages
         uses: actions/configure-pages@v5
-        with:
-          # 仓库未手动开启 Pages 时自动启用（需本 workflow 的 pages: write 权限）
-          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
