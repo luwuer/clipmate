@@ -303,15 +303,14 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 0 8px 8px;
-  /* 修 transparent + 父级 border-radius/overflow:hidden 下的 WKWebView 合成 bug——
-     滚动后 .item 不绘制（实际有但合成层未刷新）。多层兜底：
-     ① transform 强制独立合成层；
-     ② contain:paint 切断与父级的 paint 包含关系（让 WKWebView 重新计算 clip）；
-     ③ will-change 提示浏览器保留该层以避免下次滚动再退化 */
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  will-change: transform;
-  contain: paint;
+  /* 原本的 transform/will-change/contain: paint 三件套（修滚动不绘制）会创建
+     独立 GPU 合成层，在 NSPanel orderOut→makeKeyAndOrderFront 后 WKWebView
+     缓存合成层快照不刷新：DOM 已更新（refresh 后 items 不同）但 GPU 画面
+     是 hidden 前的快照，表现为"关闭再打开面板左侧白屏"。
+     验证：contain: paint 删了之后仍白屏 → 真正的源头是 transform/will-change。
+     现改用 -webkit-overflow-scrolling（Safari/WKWebView 兼容的滚动加速提示）
+     + 在 panel-shown 时 JS 兜底 forceListRepaint 强制重排。 */
+  -webkit-overflow-scrolling: touch;
 }
 .list::-webkit-scrollbar {
   width: 6px;

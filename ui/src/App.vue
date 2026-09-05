@@ -293,6 +293,23 @@ function resetListScroll(retry = 0) {
   if (retry > 0) setTimeout(() => resetListScroll(retry - 1), 50);
 }
 
+// 兜底：NSPanel hidden→shown 时若 WKWebView 缓存的 GPU 合成层没刷新（即便
+// 已去掉 transform/will-change 仍偶发），强制脱离/重建 .list 的 inline transform。
+// 用 inline style 切换而非 class —— 避免污染全局样式表。
+async function forceListRepaint() {
+  const el = listEl.value;
+  if (!el) return;
+  const prevT = el.style.transform;
+  const prevW = el.style.willChange;
+  el.style.transform = "translateZ(0.01px)";
+  el.style.willChange = "transform";
+  void el.offsetHeight;
+  // rAF 后恢复：WKWebView 应在下一帧重建合成层时拿到 DOM 当前状态
+  await new Promise((r) => requestAnimationFrame(r));
+  el.style.transform = prevT;
+  el.style.willChange = prevW;
+}
+
 // 面板刚显示时 webview 可能尚未真正成 key，DOM focus 会失败，重试几次
 function focusSearch(retry = 0) {
   searchInput.value?.focus();
@@ -364,6 +381,7 @@ onMounted(async () => {
       clearSelection();
       await refresh();
       resetListScroll(4);
+      await forceListRepaint(); // 兜底 WKWebView 合成层缓存导致左侧不绘制
       focusSearch(4);
     }),
   );
