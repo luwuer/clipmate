@@ -12,7 +12,8 @@ mod macos_impl {
     //! 实现要点（与现有 main.rs 风格一致：runtime + msg_send）：
     //! - 动态创建 NSObject 子类 ClipMateMenuTarget，addMethod `clicked:`
     //! - 所有 NSMenuItem 共享同一个 target 实例，按 tag 区分
-    //!   （1=show, 2=quit, 3=辅助权限, 4=主题, 5=开机自启, 6=面板位置）
+    //!   （1=show, 2=quit, 3=辅助权限, 4=主题, 5=开机自启, 6=面板位置,
+    //!    7=设置背景图, 8=清除背景图）
     //! - 回调通过全局 AtomicPtr<AppHandle> 取主线程 AppHandle 直接调用
     //!
     //! 避免 objc2 block/callback 生命周期坑（第五轮/第九轮教训），改用经典 objc4
@@ -141,6 +142,41 @@ mod macos_impl {
                     let _: () = objc2::msg_send![sender, setState: 1isize];
                     eprintln!("[clipmate] panel_position switched to {next}");
                 }
+            } else if tag == 7 {
+                // 设置自定义背景图：跨平台文件选择对话框（tauri-plugin-dialog，非阻塞）
+                use tauri_plugin_dialog::DialogExt;
+                let app2 = app.clone();
+                app.dialog()
+                    .file()
+                    .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic"])
+                    .pick_file(move |file| {
+                        let Some(path) = file.and_then(|f| f.into_path().ok()) else {
+                            return;
+                        };
+                        if let Ok(dir) = app2.path().app_data_dir() {
+                            crate::write_background_to_settings(
+                                &dir,
+                                Some(&path.to_string_lossy()),
+                            );
+                            let _ = app2.emit("background-changed", ());
+                            eprintln!("[clipmate] background set: {}", path.display());
+                        }
+                    });
+            } else if tag == 8 {
+                // 清除自定义背景图（移除字段 + 通知前端恢复纯色）
+                if let Ok(dir) = app.path().app_data_dir() {
+                    crate::write_background_to_settings(&dir, None);
+                    let _ = app.emit("background-changed", ());
+                    eprintln!("[clipmate] background cleared");
+                }
+            } else if tag >= 100 && tag <= 107 {
+                // 预设背景：tag 100..107 对应 preset:1..8
+                let id: u32 = (tag - 99) as u32;
+                if let Ok(dir) = app.path().app_data_dir() {
+                    crate::write_background_to_settings(&dir, Some(&format!("preset:{id}")));
+                    let _ = app.emit("background-changed", ());
+                    eprintln!("[clipmate] background preset:{id}");
+                }
             }
         }
     }
@@ -181,12 +217,28 @@ mod macos_impl {
                 objc2::msg_send![system_bar, statusItemWithLength: -1.0f64];
             eprintln!("[clipmate] menubar: step 5 item created");
 
-            // 图标：直接用 emoji title（避免 NSImage initWithContentsOfFile 在某些环境下崩溃）
-            eprintln!("[clipmate] menubar: step 5.5 creating title");
-            let title = nsstring("CM"); // 菜单栏文字标识（emoji 在小尺寸下不易辨认）
-            eprintln!("[clipmate] menubar: step 6 title ptr={title:p}");
-            let _: () = objc2::msg_send![item, setTitle: title];
-            eprintln!("[clipmate] menubar: step 7 title set");
+            // 图标：SF Symbol 剪贴板符号（系统符号，无文件加载崩溃风险，模板渲染自动适配深浅菜单栏）
+            // 加载失败时回退 "CM" 文字标识
+            let symbol_name = nsstring("doc.on.clipboard");
+            let nsimage_cls = objc2::runtime::AnyClass::get(c"NSImage").unwrap();
+            let image: *mut AnyObject = objc2::msg_send![
+                nsimage_cls,
+                imageWithSystemSymbolName: symbol_name
+                accessibilityDescription: std::ptr::null_mut::<AnyObject>()
+            ];
+            eprintln!("[clipmate] menubar: step 5.5 symbol image ptr={image:p}");
+            if !image.is_null() {
+                let button: *mut AnyObject = objc2::msg_send![item, button];
+                eprintln!("[clipmate] menubar: step 5.6 button ptr={button:p}");
+                if !button.is_null() {
+                    let _: () = objc2::msg_send![button, setImage: image];
+                    eprintln!("[clipmate] menubar: step 7 SF Symbol icon set");
+                }
+            } else {
+                let title = nsstring("CM"); // 回退：文字标识
+                let _: () = objc2::msg_send![item, setTitle: title];
+                eprintln!("[clipmate] menubar: step 7 fallback title 'CM' set");
+            }
             let _: () = objc2::msg_send![item, setHighlightMode: true];
             eprintln!("[clipmate] menubar: step 8 status item configured");
 
@@ -282,6 +334,94 @@ mod macos_impl {
             }
             let _: () = objc2::msg_send![menu, addItem: position_item];
 
+            // ---- 子菜单「背景」：8 个内置预设 + 自定义图片… + 清除背景 ----
+            // NSMenu submenu：alloc/init 一个独立菜单，addItem 把子项挂进去；
+            // 再创建带 title 的父 NSMenuItem，setSubmenu: 关联。
+            let bg_submenu: *mut AnyObject = objc2::msg_send![menu_cls, alloc];
+            let bg_submenu: *mut AnyObject = objc2::msg_send![bg_submenu, init];
+            let _: () = objc2::msg_send![bg_submenu, setAutoenablesItems: false];
+
+            // 预设 1..8（tag 100+i → preset:i+1）
+            let preset_titles = [
+                "1 · 黄昏天台",
+                "2 · 赛博夜都",
+                "3 · 和风庭院",
+                "4 · 星空原野",
+                "5 · 夏日海边",
+                "6 · 雪夜小镇",
+                "7 · 向日葵花田",
+                "8 · 雨夜街灯",
+            ];
+            for (i, title) in preset_titles.iter().enumerate() {
+                let tag = 100 + i as isize;
+                let p_title = nsstring(title);
+                let p_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+                let p_item: *mut AnyObject = objc2::msg_send![
+                    p_item,
+                    initWithTitle: p_title,
+                    action: clicked_sel,
+                    keyEquivalent: nsstring("")
+                ];
+                let _: () = objc2::msg_send![p_item, setTarget: target];
+                let _: () = objc2::msg_send![p_item, setTag: tag];
+                let _: () = objc2::msg_send![p_item, setEnabled: true];
+                // 勾选态反映当前预设
+                if let Ok(dir) = app.path().app_data_dir() {
+                    let cur = crate::read_background_from_settings(&dir)
+                        .unwrap_or_default();
+                    if cur == format!("preset:{}", i + 1) {
+                        let _: () = objc2::msg_send![p_item, setState: 1isize];
+                    }
+                }
+                let _: () = objc2::msg_send![bg_submenu, addItem: p_item];
+            }
+
+            // 子菜单分隔
+            let bg_sep: *mut AnyObject = objc2::msg_send![item_cls, separatorItem];
+            let _: () = objc2::msg_send![bg_submenu, addItem: bg_sep];
+
+            // 自定义图片…（tag 7）
+            let setbg_title = nsstring("自定义图片…");
+            let setbg_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+            let setbg_item: *mut AnyObject = objc2::msg_send![
+                setbg_item,
+                initWithTitle: setbg_title,
+                action: clicked_sel,
+                keyEquivalent: nsstring("")
+            ];
+            let _: () = objc2::msg_send![setbg_item, setTarget: target];
+            let _: () = objc2::msg_send![setbg_item, setTag: 7isize];
+            let _: () = objc2::msg_send![setbg_item, setEnabled: true];
+            let _: () = objc2::msg_send![bg_submenu, addItem: setbg_item];
+
+            // 清除背景（tag 8）
+            let clearbg_title = nsstring("清除背景");
+            let clearbg_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+            let clearbg_item: *mut AnyObject = objc2::msg_send![
+                clearbg_item,
+                initWithTitle: clearbg_title,
+                action: clicked_sel,
+                keyEquivalent: nsstring("")
+            ];
+            let _: () = objc2::msg_send![clearbg_item, setTarget: target];
+            let _: () = objc2::msg_send![clearbg_item, setTag: 8isize];
+            let _: () = objc2::msg_send![clearbg_item, setEnabled: true];
+            let _: () = objc2::msg_send![bg_submenu, addItem: clearbg_item];
+
+            // 父项「背景」承载 submenu（tag=99 在 target_clicked 分发器里不匹配 → 无副作用）
+            let bg_parent_title = nsstring("背景");
+            let bg_parent: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+            let bg_parent: *mut AnyObject = objc2::msg_send![
+                bg_parent,
+                initWithTitle: bg_parent_title,
+                action: clicked_sel,
+                keyEquivalent: nsstring("")
+            ];
+            let _: () = objc2::msg_send![bg_parent, setTarget: target];
+            let _: () = objc2::msg_send![bg_parent, setTag: 99isize];
+            let _: () = objc2::msg_send![bg_parent, setSubmenu: bg_submenu];
+            let _: () = objc2::msg_send![menu, addItem: bg_parent];
+
             // 菜单项 2: 退出
             let quit_title = nsstring("退出 ClipMate");
             let quit_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
@@ -316,6 +456,8 @@ mod windows_impl {
     use tauri::{AppHandle, Emitter, Manager};
 
     pub fn install(app: AppHandle) {
+        use tauri::menu::Submenu;
+
         let show = MenuItem::with_id(&app, "show", "显示/隐藏剪贴板面板", true, None::<&str>);
         let theme = MenuItem::with_id(&app, "theme", "切换主题", true, None::<&str>);
         let autostart = CheckMenuItem::with_id(
@@ -333,27 +475,75 @@ mod windows_impl {
             true,
             None::<&str>,
         );
-        let quit = MenuItem::with_id(&app, "quit", "退出 ClipMate", true, None::<&str>);
 
-        let (show, theme, autostart, position, quit) = match (
+        // 8 个预设菜单项（id = "bg1".."bg8"），先收集 vec 引用再传给 Submenu
+        let preset_titles = [
+            "1 · 黄昏天台",
+            "2 · 赛博夜都",
+            "3 · 和风庭院",
+            "4 · 星空原野",
+            "5 · 夏日海边",
+            "6 · 雪夜小镇",
+            "7 · 向日葵花田",
+            "8 · 雨夜街灯",
+        ];
+        let preset_items: Vec<Result<MenuItem<tauri::Wry>, _>> = (1..=8)
+            .map(|i| {
+                let id = format!("bg{i}");
+                MenuItem::with_id(
+                    &app,
+                    &id,
+                    preset_titles[i - 1],
+                    true,
+                    None::<&str>,
+                )
+            })
+            .collect();
+        let preset_refs: Vec<&MenuItem<tauri::Wry>> = match preset_items.iter().collect::<Result<Vec<_>, _>>() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[clipmate] tray preset menu item create failed: {e}");
+                return;
+            }
+        };
+        let setbg = MenuItem::with_id(&app, "setbg", "自定义图片…", true, None::<&str>);
+        let clearbg = MenuItem::with_id(&app, "clearbg", "清除背景", true, None::<&str>);
+
+        let (show, theme, autostart, position, setbg, clearbg) = match (
             show,
             theme,
             autostart,
             position,
-            quit,
+            setbg,
+            clearbg,
         ) {
-            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e)) => (a, b, c, d, e),
+            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f)) => (a, b, c, d, e, f),
             (Err(e), ..)
             | (_, Err(e), ..)
             | (_, _, Err(e), ..)
-            | (_, _, _, Err(e), _)
-            | (_, _, _, _, Err(e)) => {
+            | (_, _, _, Err(e), ..)
+            | (_, _, _, _, Err(e), ..)
+            | (_, _, _, _, _, Err(e)) => {
                 eprintln!("[clipmate] tray menu item create failed: {e}");
                 return;
             }
         };
 
-        let menu = Menu::with_items(&app, &[&show, &theme, &autostart, &position]);
+        // 背景子菜单：8 预设 + 自定义 + 清除
+        let mut bg_kids: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = Vec::new();
+        bg_kids.extend(preset_refs.iter().map(|m| m as &dyn tauri::menu::IsMenuItem<tauri::Wry>));
+        bg_kids.push(&setbg);
+        bg_kids.push(&clearbg);
+        let bg_submenu = Submenu::with_id(&app, "background", "背景", true, &bg_kids);
+        let bg_submenu = match bg_submenu {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[clipmate] tray background submenu create failed: {e}");
+                return;
+            }
+        };
+
+        let menu = Menu::with_items(&app, &[&show, &theme, &autostart, &position, &bg_submenu]);
         let menu = match menu {
             Ok(m) => m,
             Err(e) => {
@@ -365,6 +555,12 @@ mod windows_impl {
         if let Ok(sep) = PredefinedMenuItem::separator(&app) {
             let _ = menu.append(&sep);
         }
+        let quit = MenuItem::with_id(&app, "quit", "退出 ClipMate", true, None::<&str>);
+        if let Err(e) = quit {
+            eprintln!("[clipmate] tray quit item create failed: {e}");
+            return;
+        }
+        let quit = quit.unwrap();
         if let Err(e) = menu.append(&quit) {
             eprintln!("[clipmate] tray append quit item failed: {e}");
         }
@@ -408,6 +604,45 @@ mod windows_impl {
                         let next = if cur == "fixed" { "cursor" } else { "fixed" };
                         crate::write_panel_position_to_settings(&dir, next);
                         eprintln!("[clipmate] panel_position switched to {next}");
+                    }
+                }
+                "setbg" => {
+                    use tauri_plugin_dialog::DialogExt;
+                    let app2 = app.clone();
+                    app.dialog()
+                        .file()
+                        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                        .pick_file(move |file| {
+                            let Some(path) = file.and_then(|f| f.into_path().ok()) else {
+                                return;
+                            };
+                            if let Ok(dir) = app2.path().app_data_dir() {
+                                crate::write_background_to_settings(
+                                    &dir,
+                                    Some(&path.to_string_lossy()),
+                                );
+                                let _ = app2.emit("background-changed", ());
+                                eprintln!("[clipmate] background set: {}", path.display());
+                            }
+                        });
+                }
+                "clearbg" => {
+                    if let Ok(dir) = app.path().app_data_dir() {
+                        crate::write_background_to_settings(&dir, None);
+                        let _ = app.emit("background-changed", ());
+                        eprintln!("[clipmate] background cleared");
+                    }
+                }
+                id if id.starts_with("bg") && id.len() == 3 => {
+                    // 预设：id = "bg1".."bg8"
+                    if let Ok(n) = id[2..].parse::<u32>() {
+                        if (1..=8).contains(&n) {
+                            if let Ok(dir) = app.path().app_data_dir() {
+                                crate::write_background_to_settings(&dir, Some(&format!("preset:{n}")));
+                                let _ = app.emit("background-changed", ());
+                                eprintln!("[clipmate] background preset:{n}");
+                            }
+                        }
                     }
                 }
                 "quit" => app.exit(0),

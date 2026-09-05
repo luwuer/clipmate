@@ -14,6 +14,56 @@ const titlebarDragging = ref(false);
 const selected = ref(new Set());
 const anchorIndex = ref(null);
 
+// ---------- 自定义背景图（菜单栏设置 → settings.json → data URL / preset:N） ----------
+
+const PRESETS = [
+  { id: 1, name: "黄昏天台", url: "/backgrounds/preset-1.jpg" },
+  { id: 2, name: "赛博夜都", url: "/backgrounds/preset-2.jpg" },
+  { id: 3, name: "和风庭院", url: "/backgrounds/preset-3.jpg" },
+  { id: 4, name: "星空原野", url: "/backgrounds/preset-4.jpg" },
+  { id: 5, name: "夏日海边", url: "/backgrounds/preset-5.jpg" },
+  { id: 6, name: "雪夜小镇", url: "/backgrounds/preset-6.jpg" },
+  { id: 7, name: "向日葵花田", url: "/backgrounds/preset-7.jpg" },
+  { id: 8, name: "雨夜街灯", url: "/backgrounds/preset-8.jpg" },
+];
+
+const bgUrl = ref(null);
+async function loadBackground() {
+  console.log("[clipmate-ui] loadBackground invoked");
+  try {
+    const bg = await invoke("get_background_image");
+    if (!bg) {
+      bgUrl.value = null;
+      console.log("[clipmate-ui] bg: none");
+      return;
+    }
+    if (bg.kind === "preset") {
+      const p = PRESETS.find((x) => x.id === bg.id);
+      bgUrl.value = p ? p.url : null;
+      console.log(
+        "[clipmate-ui] bg preset:",
+        bg.id,
+        "->",
+        p?.name,
+        p?.url,
+      );
+    } else if (bg.kind === "image") {
+      bgUrl.value = bg.url;
+      console.log(
+        "[clipmate-ui] bg image, len=",
+        bg.url?.length,
+        "prefix:",
+        bg.url?.slice(0, 50),
+      );
+    } else {
+      bgUrl.value = null;
+    }
+  } catch (e) {
+    console.error("[clipmate-ui] bg failed:", e);
+    bgUrl.value = null;
+  }
+}
+
 // ---------- 右侧详情面板 ----------
 
 const detail = ref(null);
@@ -377,6 +427,10 @@ onMounted(async () => {
     }),
   );
 
+  // 自定义背景图：启动读取 + 监听菜单栏设置/清除事件（payload 无用，直接重拉）
+  await loadBackground();
+  unlisteners.push(await listen("background-changed", loadBackground));
+
   unlisteners.push(await listen("history-changed", () => refresh(true)));
   unlisteners.push(
     await listen("panel-shown", async () => {
@@ -402,7 +456,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="panel">
+  <div
+    class="panel"
+    :class="{ 'has-bg': !!bgUrl }"
+    :style="
+      bgUrl
+        ? { backgroundImage: `url('${bgUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' }
+        : undefined
+    "
+  >
     <div
       class="titlebar"
       :class="{ dragging: titlebarDragging }"

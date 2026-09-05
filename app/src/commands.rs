@@ -335,6 +335,87 @@ pub(crate) fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- 自定义背景图（settings.json 的 background_image 字段，绝对路径） ----------
+
+/// 扩展名 → data URL 的 mime（未知扩展回退 png，WKWebView 对 mime 不匹配也能宽容渲染）
+fn image_mime(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("heic") | Some("heif") => "image/heic",
+        Some("svg") => "image/svg+xml",
+        _ => "image/png",
+    }
+}
+
+/// 自定义背景图返回值（settings.json 的 background_image 字段可以是：
+///   - `"preset:N"`（N=1..=8）：内置预设，id=N
+///   - 其他字符串：绝对路径，作为自定义图片 data URL 返回
+/// 缺失 / 文件不存在 / 解析失败均返回 None）
+#[derive(serde::Serialize)]
+pub(crate) struct BackgroundInfo {
+    #[serde(rename = "kind")] // "preset" | "image"
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+}
+
+/// 读取背景图设置并返回结构化结果：
+/// - `"preset:N"` → kind="preset" id=N（前端按 id 映射到 ui/public/backgrounds/preset-N.jpg）
+/// - 其他值按绝对路径读文件，base64 后返回 kind="image" url=data URL
+///
+/// 走 data URL 而非 assetProtocol：不动 tauri.conf.json 的 security 配置与 CSP，
+/// 任何本地图片文件都能渲染。面板是持久 DOM，只在启动/切换时拉一次，无性能顾虑。
+#[tauri::command]
+pub(crate) fn get_background_image(app: AppHandle) -> Option<BackgroundInfo> {
+    use base64::Engine;
+    let dir = app.path().app_data_dir().ok()?;
+    let bg = match crate::read_background_from_settings(&dir) {
+        Some(s) => s,
+        None => {
+            eprintln!("[clipmate] get_background_image: no setting");
+            return None;
+        }
+    };
+    // 预设："preset:1".."preset:8"
+    if let Some(rest) = bg.strip_prefix("preset:") {
+        match rest.parse::<u32>() {
+            Ok(n) if (1..=8).contains(&n) => {
+                eprintln!("[clipmate] get_background_image: preset:{n}");
+                return Some(BackgroundInfo { kind: "preset", id: Some(n), url: None });
+            }
+            _ => {
+                eprintln!("[clipmate] invalid preset spec: {bg}");
+                return None;
+            }
+        }
+    }
+    // 否则按文件路径读
+    let p = std::path::Path::new(&bg);
+    if !p.is_file() {
+        eprintln!("[clipmate] background image missing: {}", p.display());
+        return None;
+    }
+    let bytes = std::fs::read(p).ok()?;
+    eprintln!("[clipmate] background loaded {} bytes", bytes.len());
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some(BackgroundInfo {
+        kind: "image",
+        id: None,
+        url: Some(format!("data:{};base64,{}", image_mime(p), b64)),
+    })
+}
+
 #[tauri::command]
 pub(crate) fn open_accessibility_settings() {
     // Windows 无辅助功能权限概念（SendInput 无需授权），空实现保持命令签名不变
@@ -361,4 +442,10 @@ pub(crate) fn copy_tccutil_command(state: State<'_, AppState>) -> Result<(), Str
         .last_change_count
         .fetch_max(pasteboard_change_count(), Ordering::SeqCst);
     Ok(())
+}
+
+// ---- 调试用：--bg-shot 模式让前端把 DOM 状态回传 Rust，打印到 eprintln ----
+#[tauri::command]
+pub(crate) fn bg_shot_report(report: String) {
+    eprintln!("[bg-shot][report]\n{report}");
 }

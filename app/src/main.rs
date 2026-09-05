@@ -104,6 +104,45 @@ pub(crate) fn write_theme_to_settings(data_dir: &std::path::Path, theme: &str) {
     let _ = std::fs::write(&path, v.to_string());
 }
 
+/// 读取 settings.json 的 background_image 字段（自定义背景图绝对路径）；缺失/非法返回 None
+pub(crate) fn read_background_from_settings(data_dir: &std::path::Path) -> Option<String> {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let v: Value = serde_json::from_str(&content).ok()?;
+    v.get("background_image")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// 写入/清除 background_image 字段（None = 移除字段），保留其他字段
+pub(crate) fn write_background_to_settings(data_dir: &std::path::Path, bg: Option<&str>) {
+    use serde_json::Value;
+    let path = data_dir.join("settings.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut v: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        match bg {
+            Some(s) => {
+                obj.insert(
+                    "background_image".to_string(),
+                    Value::String(s.to_string()),
+                );
+            }
+            None => {
+                obj.remove("background_image");
+            }
+        }
+    }
+    let _ = std::fs::write(&path, v.to_string());
+}
+
 // ---------- R4: 快捷键配置（settings.json，缺失/解析失败回退 F2） ----------
 
 /// 读取 app_data_dir/settings.json 的 hotkey 字段；缺失字段或解析失败返回 DEFAULT_HOTKEY
@@ -163,7 +202,9 @@ fn main() {
             commands::open_accessibility_settings,
             commands::copy_tccutil_command,
             commands::get_theme,
-            commands::set_theme
+            commands::set_theme,
+            commands::get_background_image,
+            commands::bg_shot_report
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -287,6 +328,51 @@ fn main() {
                     std::thread::sleep(Duration::from_millis(8000));
                     eprintln!("[selftest] t=13.0 hide + 结束");
                     hide(&handle);
+                });
+            }
+
+            // ---- 背景图截图模式：单纯 show panel + 等待渲染 + 不自动关闭 ----
+            // 配合外部 screencapture 截图验证预设/自定义背景渲染效果；
+            // 不滚动、不关闭，避免 WKWebView 合成层缓存的副作用。
+            if std::env::args().any(|a| a == "--bg-shot") {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    eprintln!("[bg-shot] show panel");
+                    let h2 = handle.clone();
+                    let _ = handle.run_on_main_thread(move || panel::show_panel(&h2));
+                    // 3s 后 eval 抓 DOM 状态并通过 invoke 回传
+                    std::thread::sleep(Duration::from_millis(3000));
+                    if let Some(w) = handle.get_webview_window("main") {
+                        let js = r#"window.__TAURI__.core.invoke('bg_shot_report', { report: (()=>{
+                            const p=document.querySelector('.panel');
+                            const cs=getComputedStyle(p);
+                            const logs=[];
+                            logs.push('panel.className = ' + p.className);
+                            logs.push('panel inline style = ' + (p.getAttribute('style')||'null'));
+                            logs.push('computed background-image = ' + cs.backgroundImage.slice(0,100));
+                            logs.push('computed background-size = ' + cs.backgroundSize);
+                            logs.push('computed background-position = ' + cs.backgroundPosition);
+                            const afterCs = getComputedStyle(p, '::after');
+                            logs.push('::after background = ' + afterCs.background.slice(0,100));
+                            // 探测 image 是否真加载
+                            const m = (p.getAttribute('style')||'').match(/url\(([^)]+)\)/);
+                            const testUrl = m ? m[1].replace(/^["']|["']$/g, '') : null;
+                            logs.push('extracted url = ' + testUrl);
+                            if (testUrl) {
+                                const img = new Image();
+                                img.onload = ()=> window.__TAURI__.core.invoke('bg_shot_report', { report: 'IMG_LOAD_OK url='+testUrl+' size='+img.naturalWidth+'x'+img.naturalHeight });
+                                img.onerror = ()=> window.__TAURI__.core.invoke('bg_shot_report', { report: 'IMG_LOAD_FAIL url='+testUrl });
+                                img.src = testUrl;
+                            }
+                            return logs.join('\n');
+                        })() })"#;
+                        match w.eval(js) {
+                            Ok(_) => eprintln!("[bg-shot] eval dispatched"),
+                            Err(e) => eprintln!("[bg-shot] eval failed: {e}"),
+                        }
+                    }
+                    // 持续显示
                 });
             }
 
