@@ -293,21 +293,25 @@ function resetListScroll(retry = 0) {
   if (retry > 0) setTimeout(() => resetListScroll(retry - 1), 50);
 }
 
-// 兜底：NSPanel hidden→shown 时若 WKWebView 缓存的 GPU 合成层没刷新（即便
-// 已去掉 transform/will-change 仍偶发），强制脱离/重建 .list 的 inline transform。
-// 用 inline style 切换而非 class —— 避免污染全局样式表。
+// 兜底：NSPanel hidden→shown 时 WKWebView 滚动层的 tile 缓存未刷新，
+// 导致 .list 区域不绘制（实测：forceListRepaint 仅靠 transform 切换不够，
+// 整面板甚至会变成空白窗口）。display: none 切换彻底销毁并重建滚动容器，
+// 配合 scrollTop 先到底再回 0 强制新 tile 加载，这是最暴力的失效策略。
 async function forceListRepaint() {
   const el = listEl.value;
   if (!el) return;
-  const prevT = el.style.transform;
-  const prevW = el.style.willChange;
-  el.style.transform = "translateZ(0.01px)";
-  el.style.willChange = "transform";
+  // 1) 先把滚动位置打到极限，触发完整 tile 计算
+  const prevTop = el.scrollTop;
+  el.scrollTop = el.scrollHeight;
+  // 2) 切换 display 销毁滚动层
+  el.style.display = "none";
+  // 同步读 offsetHeight 触发 layout
   void el.offsetHeight;
-  // rAF 后恢复：WKWebView 应在下一帧重建合成层时拿到 DOM 当前状态
-  await new Promise((r) => requestAnimationFrame(r));
-  el.style.transform = prevT;
-  el.style.willChange = prevW;
+  // 3) 恢复 display，让浏览器重新创建滚动层并重新加载所有 tile
+  el.style.display = "";
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  // 4) 复位 scrollTop 到 0（panel-shown 监听后续还会再 set，但这里双保险）
+  el.scrollTop = 0;
 }
 
 // 面板刚显示时 webview 可能尚未真正成 key，DOM focus 会失败，重试几次

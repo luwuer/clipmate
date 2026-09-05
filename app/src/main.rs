@@ -248,6 +248,48 @@ fn main() {
                 panel::show_panel(&app.handle().clone());
             }
 
+            // ---- 自测模式：程序化复现「打开→滚动→关闭→再打开」白屏 bug ----
+            // 用途：自动化复现/验证 WKWebView 在 orderOut→makeKeyAndOrderFront 后
+            // 左侧列表不绘制的 bug，配合外部 screencapture 截图比对。
+            // 时间线（秒）：1.0 show#1 → 2.5 滚到底 → 3.5 hide → 5.0 show#2 → 一直显示
+            if std::env::args().any(|a| a == "--selftest-repro") {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let show = |h: &tauri::AppHandle| {
+                        let h2 = h.clone();
+                        let _ = h.clone().run_on_main_thread(move || panel::show_panel(&h2));
+                    };
+                    let hide = |h: &tauri::AppHandle| {
+                        let h2 = h.clone();
+                        let _ = h.clone().run_on_main_thread(move || {
+                            if let Some(w) = h2.get_webview_window("main") {
+                                panel::panel_hide_ns(&w);
+                            }
+                        });
+                    };
+                    let eval = |h: &tauri::AppHandle, js: &str| {
+                        if let Some(w) = h.get_webview_window("main") {
+                            let _ = w.eval(js);
+                        }
+                    };
+                    std::thread::sleep(Duration::from_millis(1000));
+                    eprintln!("[selftest] t=1.0 show #1");
+                    show(&handle);
+                    std::thread::sleep(Duration::from_millis(1500));
+                    eprintln!("[selftest] t=2.5 scroll to bottom");
+                    eval(&handle, "(()=>{const l=document.querySelector('.list');if(l){l.scrollTop=l.scrollHeight;}})()");
+                    std::thread::sleep(Duration::from_millis(1000));
+                    eprintln!("[selftest] t=3.5 hide");
+                    hide(&handle);
+                    std::thread::sleep(Duration::from_millis(1500));
+                    eprintln!("[selftest] t=5.0 show #2  ← 白屏判定窗口（6s 后截屏）");
+                    show(&handle);
+                    std::thread::sleep(Duration::from_millis(8000));
+                    eprintln!("[selftest] t=13.0 hide + 结束");
+                    hide(&handle);
+                });
+            }
+
             Ok(())
         })
         .build(tauri::generate_context!())
