@@ -1,5 +1,5 @@
 #!/bin/bash
-# ClipMate Developer ID 签名 + Notarization 公证 + 打包 dmg
+# Clipmate Developer ID 签名 + Notarization 公证 + 打包 dmg
 # 用法：
 #   1. 在 Xcode/钥匙串中已有 "Developer ID Application" 证书
 #   2. 配置下方 TEAM_ID / SIGN_IDENTITY / NOTARY_PROFILE
@@ -28,8 +28,8 @@ cargo build --release --manifest-path app/Cargo.toml
 # 注意：tauri CLI 没有 --manifest-path 参数，需在 tauri 目录（app/）内运行
 (cd app && npx -y @tauri-apps/cli@2 build 2>&1 | tail -2)
 
-APP="app/target/release/bundle/macos/ClipMate.app"
-DMG_OUT="dist/ClipMate-${VERSION}.dmg"
+APP="app/target/release/bundle/macos/Clipmate.app"
+DMG_OUT="dist/Clipmate-${VERSION}.dmg"
 
 echo "==> 2/5 Developer ID 签名（$SIGN_IDENTITY）"
 # 嵌套 entitlements + privacy manifest
@@ -47,7 +47,7 @@ rm -rf /tmp/clipmate-dmg-staging && mkdir -p /tmp/clipmate-dmg-staging
 cp -R "$APP" /tmp/clipmate-dmg-staging/
 ln -s /Applications /tmp/clipmate-dmg-staging/Applications
 mkdir -p dist
-hdiutil create -volname "ClipMate ${VERSION}" \
+hdiutil create -volname "Clipmate ${VERSION}" \
   -srcfolder /tmp/clipmate-dmg-staging \
   -ov -format UDZO "$DMG_OUT" >/dev/null
 rm -rf /tmp/clipmate-dmg-staging

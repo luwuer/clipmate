@@ -1,4 +1,4 @@
-//! ClipMate — 跨平台剪贴板历史工具（macOS / Windows，CleanClip 风格）
+//! Clipmate — 跨平台剪贴板历史工具（macOS / Windows，CleanClip 风格）
 //! Tauri 2 + Rust 后端 + Vue 3 前端。
 //!
 //! R7 模块拆分（纯移动，零行为变化）；W1 Windows 移植：平台代码为 macos_impl / windows_impl 成对实现
@@ -378,7 +378,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building ClipMate");
+        .expect("error while building Clipmate");
 
     // R5: 退出前同步落盘一次，消除 2s 防抖窗口内的变更丢失
     // （menubar「退出」app.exit(0) 与正常退出路径都会经过 RunEvent::Exit）

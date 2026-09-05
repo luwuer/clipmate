@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ClipMate 图标生成器：WorkBuddy 风格绿渐变 + 白色 C + 三根白杠"""
+"""Clipmate 图标生成器：WorkBuddy 风格绿渐变 + 白色 C + 三根白杠"""
 from PIL import Image, ImageDraw
 
 S = 4  # 超采样倍数

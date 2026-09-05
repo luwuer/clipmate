@@ -34,7 +34,7 @@ Windows 支持首发 + GitHub 双平台 CI 发布链路。
 
 ### 修复与稳定
 
-- **TCC 授权固定签名**（R12）：自签证书 `ClipMate Dev`，cdhash 稳定，辅助功能授权一次永久有效（ad-hoc 每次重签失效的根治方案）
+- **TCC 授权固定签名**（R12）：自签证书 `Clipmate Dev`，cdhash 稳定，辅助功能授权一次永久有效（ad-hoc 每次重签失效的根治方案）
 - **pinned 永不淘汰**（R5）：上限截断保护置顶条目；落盘/加载统一 `split_for_limit`（R8）
 - **去重与上限统一**（R6）：任意条目去重，命中提升 recency
 - **透明圆角全链路**（R11–R18）：transparent + macos-private-api + html/body 透明 + 关闭系统阴影，四角视觉干净

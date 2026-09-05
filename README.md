@@ -1,4 +1,4 @@
-# ClipMate
+# Clipmate
 
 一个极简的**跨平台剪贴板历史工具**（macOS / Windows）：按下热键唤起面板，方向键选择，回车粘贴回当前应用。
 
@@ -19,7 +19,7 @@
 
 ## 效果预览
 
-![ClipMate 面板截图](docs/clipmate-screenshot.png)
+![Clipmate 面板截图](docs/clipmate-screenshot.png)
 
 ## 目录
 
@@ -106,16 +106,16 @@ macOS 菜单栏 / Windows 系统托盘图标常驻，菜单项：
 
 > 本节仅适用于 macOS。Windows 的 SendInput 粘贴**无需任何权限**，装好即用。
 
-粘贴到其他应用需要 macOS **辅助功能** 权限。ClipMate 会在启动时自动请求一次（系统弹窗）。如果设置列表里找不到 ClipMate（ad-hoc 重签名会导致旧条目失效）：
+粘贴到其他应用需要 macOS **辅助功能** 权限。Clipmate 会在启动时自动请求一次（系统弹窗）。如果设置列表里找不到 Clipmate（ad-hoc 重签名会导致旧条目失效）：
 
 **方式 A（推荐，根治）**：使用固定签名身份构建，授权一次永久有效：
 
 ```bash
-bash scripts/setup-codesign.sh   # 生成自签证书 CN=ClipMate Dev
+bash scripts/setup-codesign.sh   # 生成自签证书 CN=Clipmate Dev
 # 按脚本输出的 security import 命令导入钥匙串，之后 dev-build 自动使用该身份
 ```
 
-**方式 B**：系统设置 → 隐私与安全性 → 辅助功能 → 列表底部 **+** → 手动添加 ClipMate.app → 勾选。
+**方式 B**：系统设置 → 隐私与安全性 → 辅助功能 → 列表底部 **+** → 手动添加 Clipmate.app → 勾选。
 
 **方式 C**：重置后重启触发重新弹窗：
 
@@ -157,7 +157,7 @@ tccutil reset Accessibility com.mdy.clipmate
 
 ```bash
 CLIPMATE_TEAM_ID=XXXXXXXXXX bash scripts/release.sh
-# 产物：dist/ClipMate-<version>.dmg
+# 产物：dist/Clipmate-<version>.dmg
 ```
 
 一次性准备（证书、notarytool 凭据）见 [RELEASING.md](RELEASING.md)。
@@ -169,18 +169,18 @@ cd app
 cargo build --release
 npx -y @tauri-apps/cli@2 build   # 必须锁 v2（v3 schema 不兼容）
 
-# 确认 LSUIElement + 签名（固定身份 "ClipMate Dev"，无则 ad-hoc 回退）
+# 确认 LSUIElement + 签名（固定身份 "Clipmate Dev"，无则 ad-hoc 回退）
 /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" \
-  target/release/bundle/macos/ClipMate.app/Contents/Info.plist 2>/dev/null || true
-codesign -f -s "ClipMate Dev" --deep target/release/bundle/macos/ClipMate.app \
-  || codesign -f -s - --deep target/release/bundle/macos/ClipMate.app
+  target/release/bundle/macos/Clipmate.app/Contents/Info.plist 2>/dev/null || true
+codesign -f -s "Clipmate Dev" --deep target/release/bundle/macos/Clipmate.app \
+  || codesign -f -s - --deep target/release/bundle/macos/Clipmate.app
 
 # 制作 dmg
 cd target/release/bundle
 rm -rf dmg_staging && mkdir dmg_staging
-cp -R macos/ClipMate.app dmg_staging/
+cp -R macos/Clipmate.app dmg_staging/
 ln -s /Applications dmg_staging/Applications
-hdiutil create -volname "ClipMate" -srcfolder dmg_staging -ov -format UDZO ClipMate.dmg
+hdiutil create -volname "Clipmate" -srcfolder dmg_staging -ov -format UDZO Clipmate.dmg
 rm -rf dmg_staging
 ```
 

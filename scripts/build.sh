@@ -1,8 +1,8 @@
 #!/bin/bash
-# ClipMate 本地发布构建：release 编译 + 固定证书签名 → dist/ClipMate.app
+# Clipmate 本地发布构建：release 编译 + 固定证书签名 → dist/Clipmate.app
 # 与 release.sh 的区别：无需 Apple Developer 账号（不公证），适合本机日常安装。
 # 用法：
-#   bash scripts/build.sh            构建到 dist/ClipMate.app
+#   bash scripts/build.sh            构建到 dist/Clipmate.app
 #   bash scripts/build.sh --install  构建后安装到 /Applications 并启动
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -22,7 +22,7 @@ cargo build --release --manifest-path app/Cargo.toml
 
 echo "→ 3/4 组装 .app…"
 VERSION=$(grep '"version"' app/tauri.conf.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
-APP="dist/ClipMate.app"
+APP="dist/Clipmate.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp app/target/release/clipmate "$APP/Contents/MacOS/clipmate"
 cp app/icons/icon.icns "$APP/Contents/Resources/icon.icns"
@@ -34,8 +34,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleExecutable</key><string>clipmate</string>
   <key>CFBundleIdentifier</key><string>com.mdy.clipmate</string>
-  <key>CFBundleName</key><string>ClipMate</string>
-  <key>CFBundleDisplayName</key><string>ClipMate</string>
+  <key>CFBundleName</key><string>Clipmate</string>
+  <key>CFBundleDisplayName</key><string>Clipmate</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
@@ -48,7 +48,7 @@ PLIST
 
 echo "→ 4/4 代码签名…"
 # 固定签名身份：cdhash 稳定 → TCC 辅助功能授权一次永久有效。
-# 没有该身份则回退 ad-hoc（每次构建 cdhash 都变，授权会失效）。
+# ⚠️ CN 保留旧拼写 "ClipMate Dev"：与钥匙串现有证书一致，勿随应用名统一。
 SIGN_IDENTITY="ClipMate Dev"
 if security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
   codesign -f --deep --entitlements app/Entitlements.plist -s "$SIGN_IDENTITY" "$APP"
@@ -64,10 +64,10 @@ fi
 
 if [ "${1:-}" = "--install" ]; then
   echo "→ 安装到 /Applications…"
-  pkill -f "ClipMate.app/Contents/MacOS/clipmate" 2>/dev/null || true
+  pkill -f "Clipmate.app/Contents/MacOS/clipmate" 2>/dev/null || true
   sleep 0.5
-  rm -rf /Applications/ClipMate.app
-  cp -R "$APP" /Applications/ClipMate.app
-  open /Applications/ClipMate.app
-  echo "✓ 已安装并启动 /Applications/ClipMate.app"
+  rm -rf /Applications/Clipmate.app
+  cp -R "$APP" /Applications/Clipmate.app
+  open /Applications/Clipmate.app
+  echo "✓ 已安装并启动 /Applications/Clipmate.app"
 fi

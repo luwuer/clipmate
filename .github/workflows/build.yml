@@ -43,7 +43,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ClipMate-windows-x64
+          name: Clipmate-windows-x64
           path: app/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
@@ -81,7 +81,7 @@ jobs:
       - name: Upload dmg artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ClipMate-macos-universal
+          name: Clipmate-macos-universal
           path: app/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
@@ -103,8 +103,8 @@ jobs:
       - name: Rename to stable asset names
         run: |
           cd out
-          mv ClipMate_*_x64-setup.exe ClipMate_x64-setup.exe 2>/dev/null || true
-          mv ClipMate_*_universal.dmg ClipMate_universal.dmg 2>/dev/null || true
+          mv Clipmate_*_x64-setup.exe Clipmate_x64-setup.exe 2>/dev/null || true
+          mv Clipmate_*_universal.dmg Clipmate_universal.dmg 2>/dev/null || true
           ls -la
 
       - name: Create GitHub Release

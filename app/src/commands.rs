@@ -485,7 +485,7 @@ pub(crate) fn open_accessibility_settings() {
     // Windows 无辅助功能权限概念（SendInput 无需授权），空实现保持命令签名不变
     #[cfg(target_os = "macos")]
     {
-        // 先触发一次系统请求弹窗（即使之前拒绝过也再试一次，让 ClipMate 出现在列表里）
+        // 先触发一次系统请求弹窗（即使之前拒绝过也再试一次，让 Clipmate 出现在列表里）
         let _ = std::process::Command::new("osascript")
             .arg("-e")
             .arg(r#"tell application "System Events" to keystroke "" "#)

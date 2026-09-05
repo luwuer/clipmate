@@ -1,4 +1,4 @@
-# ClipMate 发布指南
+# Clipmate 发布指南
 
 ## 为什么不上 Mac App Store
 
@@ -7,7 +7,7 @@ Mac App Store 强制 **App Sandbox**，而沙盒中：
 - CGEvent 事件注入（模拟 Cmd+V 粘贴）被禁止
 - 全局热键监听受限
 
-这三者正是 ClipMate 的核心能力。**同类工具（Maccy、CleanClip、Paste）均不在 App Store**，都采用 Developer ID 签名 + 公证的官网分发路径。Maccy 官方 FAQ 对此有明确说明。
+这三者正是 Clipmate 的核心能力。**同类工具（Maccy、CleanClip、Paste）均不在 App Store**，都采用 Developer ID 签名 + 公证的官网分发路径。Maccy 官方 FAQ 对此有明确说明。
 
 ## 分发路径：Developer ID + Notarization
 
@@ -34,16 +34,16 @@ CLIPMATE_TEAM_ID=XXXXXXXXXX bash scripts/release.sh
 
 脚本自动完成：release 构建 → Developer ID 签名（含 entitlements + privacy manifest）→ dmg 制作 → notarization 公证 → staple 票据。
 
-产物：`dist/ClipMate-0.2.0.dmg`
+产物：`dist/Clipmate-0.2.0.dmg`
 
 ### 3. 验证（可选）
 
 ```bash
 # 签名验证
-codesign --verify --deep --strict dist/ClipMate.app 2>/dev/null || \
-  codesign --verify --deep --strict app/target/release/bundle/macos/ClipMate.app
+codesign --verify --deep --strict dist/Clipmate.app 2>/dev/null || \
+  codesign --verify --deep --strict app/target/release/bundle/macos/Clipmate.app
 # 公证验证
-spctl -a -vv -t install dist/ClipMate-0.2.0.dmg
+spctl -a -vv -t install dist/Clipmate-0.2.0.dmg
 ```
 
 ## 已就绪的发布材料

@@ -59,7 +59,7 @@ mod macos_impl {
                 objc2::runtime::AnyClass::get(c"NSObject").unwrap() as *const _ as *const AnyObject;
             let new_cls = objc_allocateClassPair(
                 super_cls,
-                c"ClipMateMenuTarget".as_ptr() as *const c_char,
+                c"ClipmateMenuTarget".as_ptr() as *const c_char,
                 0,
             );
             if new_cls.is_null() {
@@ -475,7 +475,7 @@ mod macos_impl {
             let _: () = objc2::msg_send![menu, addItem: bg_parent];
 
             // 菜单项 2: 退出
-            let quit_title = nsstring("退出 ClipMate");
+            let quit_title = nsstring("退出 Clipmate");
             let quit_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
             let quit_item: *mut AnyObject = objc2::msg_send![
                 quit_item,
@@ -626,7 +626,7 @@ mod windows_impl {
         if let Ok(sep) = PredefinedMenuItem::separator(&app) {
             let _ = menu.append(&sep);
         }
-        let quit = MenuItem::with_id(&app, "quit", "退出 ClipMate", true, None::<&str>);
+        let quit = MenuItem::with_id(&app, "quit", "退出 Clipmate", true, None::<&str>);
         if let Err(e) = quit {
             eprintln!("[clipmate] tray quit item create failed: {e}");
             return;
@@ -640,7 +640,7 @@ mod windows_impl {
         let autostart_item = autostart.clone();
 
         let mut builder = TrayIconBuilder::with_id("clipmate-tray")
-            .tooltip("ClipMate")
+            .tooltip("Clipmate")
             .menu(&menu)
             .show_menu_on_left_click(true)
             .on_menu_event(move |app, event| match event.id().as_ref() {

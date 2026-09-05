@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
       :class="{ dragging: titlebarDragging }"
       @mousedown="onTitlebarMousedown"
     >
-      ClipMate
+      Clipmate
     </div>
 
     <div class="header">

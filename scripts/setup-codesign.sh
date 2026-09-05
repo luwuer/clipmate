@@ -1,5 +1,5 @@
 #!/bin/bash
-# ClipMate 固定代码签名证书生成脚本
+# Clipmate 固定代码签名证书生成脚本
 #
 # 为什么需要：TCC（辅助功能授权）按 (designated requirement + cdhash) 匹配条目。
 # ad-hoc 签名（codesign -s -）每次打包 cdhash 都变 → 旧授权条目失效"消失"。
@@ -11,6 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# ⚠️ CN 保留旧拼写 "ClipMate Dev"：与现有钥匙串证书/签名脚本一致，勿随应用名统一
 CN="ClipMate Dev"
 P12_PASS="clipmate-dev"
 DRY_RUN=false

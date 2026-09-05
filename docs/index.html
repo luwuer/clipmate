@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClipMate — 极简跨平台剪贴板历史</title>
+<title>Clipmate — 极简跨平台剪贴板历史</title>
 <meta name="description" content="按下热键唤起面板，方向键选择，回车粘贴。macOS / Windows 双平台原生实现的剪贴板历史工具。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='5' y='4' width='14' height='18' rx='2.5' fill='%230066cc'/><rect x='9' y='2.5' width='6' height='3.5' rx='1.2' fill="%23fff"/></svg">
 <style>
@@ -322,7 +322,7 @@
         <rect x="9" y="2.5" width="6" height="3.5" rx="1.2" fill="#ffffff"/>
       </svg>
     </span>
-    <span class="brand-name">ClipMate</span>
+    <span class="brand-name">Clipmate</span>
   </a>
   <div class="links">
     <a href="#features">特性</a>
@@ -349,7 +349,7 @@
   </div>
 
   <div class="preview-wrap">
-    <img class="panel-img" src="clipmate-screenshot.png" alt="ClipMate 产品截图：左侧历史列表，右侧选中条目详情与操作按钮" />
+    <img class="panel-img" src="clipmate-screenshot.png" alt="Clipmate 产品截图：左侧历史列表，右侧选中条目详情与操作按钮" />
   </div>
 </section>
 
@@ -433,11 +433,11 @@
   <div class="faq-list">
     <div class="qa">
       <div class="q">macOS 首次打开提示「无法验证开发者」？</div>
-      <div class="a">CI 构建的 DMG 未做 Developer ID 签名公证。首次打开：<b>右键 ClipMate.app → 打开 → 再点「打开」</b>；或到 系统设置 → 隐私与安全性 页面底部点「仍要打开」。之后正常双击即可。</div>
+      <div class="a">CI 构建的 DMG 未做 Developer ID 签名公证。首次打开：<b>右键 Clipmate.app → 打开 → 再点「打开」</b>；或到 系统设置 → 隐私与安全性 页面底部点「仍要打开」。之后正常双击即可。</div>
     </div>
     <div class="qa">
       <div class="q">macOS 粘贴需要授权？</div>
-      <div class="a">是。粘贴到其他应用需要「辅助功能」权限，ClipMate 启动时会自动请求。若设置列表里找不到，用菜单栏「申请辅助权限并打开设置」入口，或 系统设置 → 隐私与安全性 → 辅助功能 → 手动添加。Windows 无此概念，装好即用。</div>
+      <div class="a">是。粘贴到其他应用需要「辅助功能」权限，Clipmate 启动时会自动请求。若设置列表里找不到，用菜单栏「申请辅助权限并打开设置」入口，或 系统设置 → 隐私与安全性 → 辅助功能 → 手动添加。Windows 无此概念，装好即用。</div>
     </div>
     <div class="qa">
       <div class="q">Windows 安装时 SmartScreen 警告？</div>
@@ -453,7 +453,7 @@
 <!-- 页脚 -->
 <footer>
   <p class="row">
-    <span class="build">ClipMate · Tauri + Rust + Vue 3 构建</span>
+    <span class="build">Clipmate · Tauri + Rust + Vue 3 构建</span>
     <a href="https://github.com/luwuer/clipmate" target="_blank" rel="noopener">GitHub</a>
     <a href="https://github.com/luwuer/clipmate/releases" target="_blank" rel="noopener">Releases</a>
   </p>
@@ -469,10 +469,10 @@
     var base = 'https://github.com/luwuer/clipmate/releases/latest';
     if (/Mac|iPhone|iPad/i.test(ua)) {
       text.textContent = '下载 macOS 版';
-      el.href = base + '/download/ClipMate_universal.dmg';
+      el.href = base + '/download/Clipmate_universal.dmg';
     } else if (/Windows/i.test(ua)) {
       text.textContent = '下载 Windows 版';
-      el.href = base + '/download/ClipMate_x64-setup.exe';
+      el.href = base + '/download/Clipmate_x64-setup.exe';
     }
   })();
 </script>

@@ -34,7 +34,7 @@ mod macos_impl {
         )
     }
 
-    /// 当前可执行文件绝对路径（.app 内即 ClipMate.app/Contents/MacOS/clipmate）
+    /// 当前可执行文件绝对路径（.app 内即 Clipmate.app/Contents/MacOS/clipmate）
     fn current_exe_path() -> Option<String> {
         std::env::current_exe()
             .ok()
@@ -119,10 +119,10 @@ mod macos_impl {
 
         #[test]
         fn plist_content_shape() {
-            let p = render_plist("/Users/x/dist/ClipMate.app/Contents/MacOS/clipmate");
+            let p = render_plist("/Users/x/dist/Clipmate.app/Contents/MacOS/clipmate");
             assert!(p.contains("<key>Label</key><string>com.mdy.clipmate</string>"));
             assert!(p.contains(
-                "<string>/Users/x/dist/ClipMate.app/Contents/MacOS/clipmate</string>"
+                "<string>/Users/x/dist/Clipmate.app/Contents/MacOS/clipmate</string>"
             ));
             assert!(p.contains("<key>RunAtLoad</key><true/>"));
             assert!(p.contains("<key>KeepAlive</key><false/>"));
@@ -189,7 +189,7 @@ mod windows_impl {
     };
 
     const RUN_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-    const VALUE_NAME: &str = "ClipMate";
+    const VALUE_NAME: &str = "Clipmate";
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -206,7 +206,7 @@ mod windows_impl {
         unsafe { std::slice::from_raw_parts(w.as_ptr().cast::<u8>(), w.len() * 2) }
     }
 
-    /// 读取 Run\ClipMate 的值（REG_SZ）；不存在/类型不对返回 None
+    /// 读取 Run\Clipmate 的值（REG_SZ）；不存在/类型不对返回 None
     fn read_run_value() -> Option<String> {
         unsafe {
             let mut hkey = HKEY::default();
@@ -243,12 +243,12 @@ mod windows_impl {
         }
     }
 
-    /// 是否已开启（Run\ClipMate 值存在即视为开启）
+    /// 是否已开启（Run\Clipmate 值存在即视为开启）
     pub fn is_enabled() -> bool {
         read_run_value().is_some()
     }
 
-    /// 开启：写 Run\ClipMate = "exe路径"（带引号，覆盖式——路径变了自动更新）
+    /// 开启：写 Run\Clipmate = "exe路径"（带引号，覆盖式——路径变了自动更新）
     pub fn enable() -> Result<(), String> {
         let exe = current_exe_path().ok_or("current_exe 不可用")?;
         let data = format!("\"{exe}\"");
@@ -283,11 +283,11 @@ mod windows_impl {
                 return Err(format!("set Run value failed: {}", res.0));
             }
         }
-        eprintln!("[clipmate] autostart enabled -> HKCU Run\\ClipMate");
+        eprintln!("[clipmate] autostart enabled -> HKCU Run\\Clipmate");
         Ok(())
     }
 
-    /// 关闭：删 Run\ClipMate（值/键不存在视为幂等成功）
+    /// 关闭：删 Run\Clipmate（值/键不存在视为幂等成功）
     pub fn disable() -> Result<(), String> {
         unsafe {
             let mut hkey = HKEY::default();
@@ -331,7 +331,7 @@ mod windows_impl {
         use super::*;
 
         /// enable → is_enabled true → disable → is_enabled false（操作真实 HKCU，
-        /// 只动 ClipMate 专属值；disable 幂等；测完还原初始状态）
+        /// 只动 Clipmate 专属值；disable 幂等；测完还原初始状态）
         #[test]
         fn enable_disable_roundtrip() {
             let before = is_enabled();
