@@ -36,6 +36,8 @@
   --pin-hover-bg: rgba(255, 159, 10, 0.18);
   --del-hover-bg: rgba(255, 69, 58, 0.3);
   --del-hover-text: #ff6961;
+  /* 自定义背景图压暗层（深色主题：深色半透明，文字保持高对比） */
+  --bg-dim: rgba(18, 18, 22, 0.45);
 }
 
 body[data-theme="light"] {
@@ -69,6 +71,8 @@ body[data-theme="light"] {
   --pin-hover-bg: rgba(255, 159, 10, 0.15);
   --del-hover-bg: rgba(255, 59, 48, 0.12);
   --del-hover-text: #ff3b30;
+  /* 自定义背景图压暗层（浅色主题：白色半透明提亮） */
+  --bg-dim: rgba(255, 255, 255, 0.6);
 }
 
 html,
@@ -88,6 +92,7 @@ body {
 }
 
 .panel {
+  position: relative;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -102,6 +107,19 @@ body {
   isolation: isolate;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
+}
+
+/* ---- 自定义背景图：行内 backgroundImage 直接铺在 .panel 上；::after 做压暗层 ---- */
+/* 注意：CSS 变量不能存 url()（var(--x) 不会展开 url(...)），所以图片只能走
+   行内 backgroundImage（Vue :style 绑定），不能走 :root CSS 变量。 */
+.panel.has-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--bg-dim);
 }
 
 /* ---- titlebar（可拖拽）---- */
