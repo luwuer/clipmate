@@ -1,0 +1,14 @@
+{
+  "name": "clipmate",
+  "private": true,
+  "version": "0.2.1",
+  "description": "ClipMate - macOS clipboard history tool (Tauri + Vue)",
+  "scripts": {
+    "dev": "bash scripts/dev-build.sh --run",
+    "dev:build": "bash scripts/dev-build.sh",
+    "build": "bash scripts/build.sh",
+    "deploy": "bash scripts/build.sh --install",
+    "release": "bash scripts/release.sh",
+    "selftest": "bash scripts/dev-build.sh && app/target/debug/clipmate --selftest-repro"
+  }
+}
