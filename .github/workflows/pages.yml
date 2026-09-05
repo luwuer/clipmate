@@ -1,6 +1,7 @@
 name: Deploy Pages
 
 # 产品介绍页：docs/ 变更或手动触发时部署到 GitHub Pages
+# 2026-09-05：Pages source 已在仓库设置开启（GitHub Actions），本注释用于触发首次部署
 on:
   push:
     branches: [main]
