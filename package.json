@@ -2,7 +2,7 @@
   "name": "clipmate",
   "private": true,
   "version": "0.2.1",
-  "description": "ClipMate - macOS clipboard history tool (Tauri + Vue)",
+  "description": "ClipMate - clipboard history tool (Tauri + Vue)",
   "scripts": {
     "dev": "bash scripts/dev-build.sh --run",
     "dev:build": "bash scripts/dev-build.sh",
