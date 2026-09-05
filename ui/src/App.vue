@@ -14,53 +14,31 @@ const titlebarDragging = ref(false);
 const selected = ref(new Set());
 const anchorIndex = ref(null);
 
-// ---------- 自定义背景图（菜单栏设置 → settings.json → data URL / preset:N） ----------
+// ---------- 自定义背景（菜单栏设置 → settings.json 存背景文件夹内文件路径 → data URL） ----------
+// kind: "image" → <img> 渲染（gif/webp 动图在元素里可靠播放）；"video" → <video> 自动循环播放
 
-const PRESETS = [
-  { id: 1, name: "黄昏天台", url: "/backgrounds/preset-1.jpg" },
-  { id: 2, name: "赛博夜都", url: "/backgrounds/preset-2.jpg" },
-  { id: 3, name: "和风庭院", url: "/backgrounds/preset-3.jpg" },
-  { id: 4, name: "星空原野", url: "/backgrounds/preset-4.jpg" },
-  { id: 5, name: "夏日海边", url: "/backgrounds/preset-5.jpg" },
-  { id: 6, name: "雪夜小镇", url: "/backgrounds/preset-6.jpg" },
-  { id: 7, name: "向日葵花田", url: "/backgrounds/preset-7.jpg" },
-  { id: 8, name: "雨夜街灯", url: "/backgrounds/preset-8.jpg" },
-];
-
-const bgUrl = ref(null);
+const bgMedia = ref(null); // { kind: "image" | "video", url: data URL }
 async function loadBackground() {
   console.log("[clipmate-ui] loadBackground invoked");
   try {
     const bg = await invoke("get_background_image");
-    if (!bg) {
-      bgUrl.value = null;
-      console.log("[clipmate-ui] bg: none");
-      return;
-    }
-    if (bg.kind === "preset") {
-      const p = PRESETS.find((x) => x.id === bg.id);
-      bgUrl.value = p ? p.url : null;
+    if (bg && (bg.kind === "image" || bg.kind === "video")) {
+      bgMedia.value = bg;
       console.log(
-        "[clipmate-ui] bg preset:",
-        bg.id,
-        "->",
-        p?.name,
-        p?.url,
-      );
-    } else if (bg.kind === "image") {
-      bgUrl.value = bg.url;
-      console.log(
-        "[clipmate-ui] bg image, len=",
+        "[clipmate-ui] bg",
+        bg.kind,
+        "len=",
         bg.url?.length,
         "prefix:",
         bg.url?.slice(0, 50),
       );
     } else {
-      bgUrl.value = null;
+      bgMedia.value = null;
+      console.log("[clipmate-ui] bg: none");
     }
   } catch (e) {
     console.error("[clipmate-ui] bg failed:", e);
-    bgUrl.value = null;
+    bgMedia.value = null;
   }
 }
 
@@ -456,15 +434,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    class="panel"
-    :class="{ 'has-bg': !!bgUrl }"
-    :style="
-      bgUrl
-        ? { backgroundImage: `url('${bgUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' }
-        : undefined
-    "
-  >
+  <div class="panel" :class="{ 'has-bg': !!bgMedia }">
+    <video
+      v-if="bgMedia && bgMedia.kind === 'video'"
+      class="bg-media"
+      :src="bgMedia.url"
+      autoplay
+      loop
+      muted
+      playsinline
+    ></video>
+    <img v-else-if="bgMedia" class="bg-media" :src="bgMedia.url" alt="" />
     <div
       class="titlebar"
       :class="{ dragging: titlebarDragging }"

@@ -335,10 +335,84 @@ pub(crate) fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
     Ok(())
 }
 
-// ---------- 自定义背景图（settings.json 的 background_image 字段，绝对路径） ----------
+// ---------- 自定义背景（settings.json 的 background_image = 背景文件夹内文件的绝对路径） ----------
+
+/// 背景媒体文件夹：app_data_dir/backgrounds（图片 + mp4/mov 视频，菜单动态列出）
+/// 用户可自行往里丢文件；「选择图片/视频…」选中的文件也会拷贝进来统一管理
+pub(crate) fn backgrounds_dir(app: &AppHandle) -> std::path::PathBuf {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("backgrounds");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// 扩展名 → 是否视频扩展名（mp4/mov/m4v）
+pub(crate) fn is_video_ext(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("mp4") | Some("mov") | Some("m4v")
+    )
+}
+
+/// 是否支持的背景媒体（图片 png/jpg/jpeg/gif/webp/bmp/heic + 视频 mp4/mov/m4v）
+pub(crate) fn is_supported_media(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("png")
+            | Some("jpg")
+            | Some("jpeg")
+            | Some("gif")
+            | Some("webp")
+            | Some("bmp")
+            | Some("heic")
+            | Some("mp4")
+            | Some("mov")
+            | Some("m4v")
+    )
+}
+
+/// 扫描背景文件夹：按文件名排序返回 (路径, 是否视频)；目录为空/不存在返回空 Vec
+pub(crate) fn scan_backgrounds(app: &AppHandle) -> Vec<(std::path::PathBuf, bool)> {
+    let dir = backgrounds_dir(app);
+    let mut out: Vec<(std::path::PathBuf, bool)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_file() && is_supported_media(&p) {
+                let video = is_video_ext(&p);
+                out.push((p, video));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
+    out
+}
+
+/// 把外部文件拷入背景文件夹（同名覆盖；已在文件夹内则原样返回），返回目标路径
+pub(crate) fn import_background(
+    app: &AppHandle,
+    src: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let dir = backgrounds_dir(app);
+    let name = src.file_name()?;
+    let dst = dir.join(name);
+    if src != dst {
+        std::fs::copy(src, &dst).ok()?;
+    }
+    Some(dst)
+}
 
 /// 扩展名 → data URL 的 mime（未知扩展回退 png，WKWebView 对 mime 不匹配也能宽容渲染）
-fn image_mime(path: &std::path::Path) -> &'static str {
+fn media_mime(path: &std::path::Path) -> &'static str {
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -352,30 +426,26 @@ fn image_mime(path: &std::path::Path) -> &'static str {
         Some("bmp") => "image/bmp",
         Some("heic") | Some("heif") => "image/heic",
         Some("svg") => "image/svg+xml",
+        Some("mp4") | Some("m4v") => "video/mp4",
+        Some("mov") => "video/quicktime",
         _ => "image/png",
     }
 }
 
-/// 自定义背景图返回值（settings.json 的 background_image 字段可以是：
-///   - `"preset:N"`（N=1..=8）：内置预设，id=N
-///   - 其他字符串：绝对路径，作为自定义图片 data URL 返回
-/// 缺失 / 文件不存在 / 解析失败均返回 None）
+/// 自定义背景返回值（settings.json 的 background_image 为背景文件的绝对路径）：
+/// kind = "image"（前端 <img> 渲染）| "video"（前端 <video autoplay loop muted> 渲染）
+/// 缺失 / 文件不存在 / 解析失败均返回 None
 #[derive(serde::Serialize)]
 pub(crate) struct BackgroundInfo {
-    #[serde(rename = "kind")] // "preset" | "image"
+    #[serde(rename = "kind")] // "image" | "video"
     kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
+    url: String,
 }
 
-/// 读取背景图设置并返回结构化结果：
-/// - `"preset:N"` → kind="preset" id=N（前端按 id 映射到 ui/public/backgrounds/preset-N.jpg）
-/// - 其他值按绝对路径读文件，base64 后返回 kind="image" url=data URL
-///
-/// 走 data URL 而非 assetProtocol：不动 tauri.conf.json 的 security 配置与 CSP，
-/// 任何本地图片文件都能渲染。面板是持久 DOM，只在启动/切换时拉一次，无性能顾虑。
+/// 读取背景设置并返回结构化结果：
+/// settings 值按绝对路径读文件，base64 后返回 data URL（图片与视频统一走 data URL：
+/// 不动 tauri.conf.json 的 security 配置与 CSP，<video src=data:...> 在 WKWebView 可正常播放）。
+/// 面板是持久 DOM，只在启动/切换时拉一次。
 #[tauri::command]
 pub(crate) fn get_background_image(app: AppHandle) -> Option<BackgroundInfo> {
     use base64::Engine;
@@ -387,32 +457,26 @@ pub(crate) fn get_background_image(app: AppHandle) -> Option<BackgroundInfo> {
             return None;
         }
     };
-    // 预设："preset:1".."preset:8"
-    if let Some(rest) = bg.strip_prefix("preset:") {
-        match rest.parse::<u32>() {
-            Ok(n) if (1..=8).contains(&n) => {
-                eprintln!("[clipmate] get_background_image: preset:{n}");
-                return Some(BackgroundInfo { kind: "preset", id: Some(n), url: None });
-            }
-            _ => {
-                eprintln!("[clipmate] invalid preset spec: {bg}");
-                return None;
-            }
-        }
+    // 旧版 "preset:N" 语义已废弃（预设图移除，改为背景文件夹动态扫描）
+    if bg.starts_with("preset:") {
+        eprintln!("[clipmate] get_background_image: legacy preset spec ignored: {bg}");
+        return None;
     }
-    // 否则按文件路径读
     let p = std::path::Path::new(&bg);
     if !p.is_file() {
         eprintln!("[clipmate] background image missing: {}", p.display());
         return None;
     }
     let bytes = std::fs::read(p).ok()?;
-    eprintln!("[clipmate] background loaded {} bytes", bytes.len());
+    eprintln!(
+        "[clipmate] background loaded {} bytes (video={})",
+        bytes.len(),
+        is_video_ext(p)
+    );
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Some(BackgroundInfo {
-        kind: "image",
-        id: None,
-        url: Some(format!("data:{};base64,{}", image_mime(p), b64)),
+        kind: if is_video_ext(p) { "video" } else { "image" },
+        url: format!("data:{};base64,{}", media_mime(p), b64),
     })
 }
 

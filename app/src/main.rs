@@ -346,25 +346,24 @@ fn main() {
                     if let Some(w) = handle.get_webview_window("main") {
                         let js = r#"window.__TAURI__.core.invoke('bg_shot_report', { report: (()=>{
                             const p=document.querySelector('.panel');
-                            const cs=getComputedStyle(p);
+                            const media=document.querySelector('.bg-media');
                             const logs=[];
                             logs.push('panel.className = ' + p.className);
                             logs.push('panel inline style = ' + (p.getAttribute('style')||'null'));
-                            logs.push('computed background-image = ' + cs.backgroundImage.slice(0,100));
-                            logs.push('computed background-size = ' + cs.backgroundSize);
-                            logs.push('computed background-position = ' + cs.backgroundPosition);
+                            if (media) {
+                                logs.push('bg-media tag=' + media.tagName + ' src=' + (media.src||'').slice(0,50) + '…');
+                                if (media.tagName === 'VIDEO') {
+                                    logs.push('video readyState=' + media.readyState + ' paused=' + media.paused + ' currentTime=' + media.currentTime + ' size=' + media.videoWidth + 'x' + media.videoHeight);
+                                    // 2.5s 后回传播放心跳（currentTime 前进 = 真在播）
+                                    setTimeout(()=> window.__TAURI__.core.invoke('bg_shot_report', { report: 'VIDEO_TICK currentTime='+media.currentTime.toFixed(2)+' readyState='+media.readyState+' paused='+media.paused }), 2500);
+                                } else {
+                                    logs.push('img natural=' + media.naturalWidth + 'x' + media.naturalHeight + ' complete=' + media.complete);
+                                }
+                            } else {
+                                logs.push('bg-media: NOT FOUND');
+                            }
                             const afterCs = getComputedStyle(p, '::after');
                             logs.push('::after background = ' + afterCs.background.slice(0,100));
-                            // 探测 image 是否真加载
-                            const m = (p.getAttribute('style')||'').match(/url\(([^)]+)\)/);
-                            const testUrl = m ? m[1].replace(/^["']|["']$/g, '') : null;
-                            logs.push('extracted url = ' + testUrl);
-                            if (testUrl) {
-                                const img = new Image();
-                                img.onload = ()=> window.__TAURI__.core.invoke('bg_shot_report', { report: 'IMG_LOAD_OK url='+testUrl+' size='+img.naturalWidth+'x'+img.naturalHeight });
-                                img.onerror = ()=> window.__TAURI__.core.invoke('bg_shot_report', { report: 'IMG_LOAD_FAIL url='+testUrl });
-                                img.src = testUrl;
-                            }
                             return logs.join('\n');
                         })() })"#;
                         match w.eval(js) {

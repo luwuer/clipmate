@@ -143,23 +143,34 @@ mod macos_impl {
                     eprintln!("[clipmate] panel_position switched to {next}");
                 }
             } else if tag == 7 {
-                // 设置自定义背景图：跨平台文件选择对话框（tauri-plugin-dialog，非阻塞）
+                // 选择背景图片/视频：跨平台文件选择对话框（tauri-plugin-dialog，非阻塞）
+                // 选中后拷入背景文件夹统一管理（菜单动态列出）
                 use tauri_plugin_dialog::DialogExt;
                 let app2 = app.clone();
                 app.dialog()
                     .file()
-                    .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic"])
+                    .add_filter(
+                        "图片/视频",
+                        &["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "mp4", "mov", "m4v"],
+                    )
                     .pick_file(move |file| {
                         let Some(path) = file.and_then(|f| f.into_path().ok()) else {
                             return;
                         };
-                        if let Ok(dir) = app2.path().app_data_dir() {
-                            crate::write_background_to_settings(
-                                &dir,
-                                Some(&path.to_string_lossy()),
-                            );
-                            let _ = app2.emit("background-changed", ());
-                            eprintln!("[clipmate] background set: {}", path.display());
+                        match crate::commands::import_background(&app2, &path) {
+                            Some(dst) => {
+                                if let Ok(dir) = app2.path().app_data_dir() {
+                                    crate::write_background_to_settings(
+                                        &dir,
+                                        Some(&dst.to_string_lossy()),
+                                    );
+                                    let _ = app2.emit("background-changed", ());
+                                    eprintln!("[clipmate] background set: {}", dst.display());
+                                }
+                            }
+                            None => {
+                                eprintln!("[clipmate] background import failed: {}", path.display())
+                            }
                         }
                     });
             } else if tag == 8 {
@@ -169,14 +180,21 @@ mod macos_impl {
                     let _ = app.emit("background-changed", ());
                     eprintln!("[clipmate] background cleared");
                 }
-            } else if tag >= 100 && tag <= 107 {
-                // 预设背景：tag 100..107 对应 preset:1..8
-                let id: u32 = (tag - 99) as u32;
-                if let Ok(dir) = app.path().app_data_dir() {
-                    crate::write_background_to_settings(&dir, Some(&format!("preset:{id}")));
-                    let _ = app.emit("background-changed", ());
-                    eprintln!("[clipmate] background preset:{id}");
+            } else if (100..=119).contains(&tag) {
+                // 背景文件夹内第 (tag-100) 个媒体文件（与菜单构建时同序号扫描；上限 20 个）
+                let files = crate::commands::scan_backgrounds(app);
+                if let Some((path, _)) = files.get((tag - 100) as usize) {
+                    if let Ok(dir) = app.path().app_data_dir() {
+                        crate::write_background_to_settings(&dir, Some(&path.to_string_lossy()));
+                        let _ = app.emit("background-changed", ());
+                        eprintln!("[clipmate] background file: {}", path.display());
+                    }
                 }
+            } else if tag == 120 {
+                // 打开背景文件夹（Finder）——用户往里丢图片/视频即可出现在菜单
+                let dir = crate::commands::backgrounds_dir(app);
+                let _ = std::process::Command::new("open").arg(&dir).spawn();
+                eprintln!("[clipmate] open backgrounds dir: {}", dir.display());
             }
         }
     }
@@ -223,7 +241,7 @@ mod macos_impl {
             let nsimage_cls = objc2::runtime::AnyClass::get(c"NSImage").unwrap();
             let image: *mut AnyObject = objc2::msg_send![
                 nsimage_cls,
-                imageWithSystemSymbolName: symbol_name
+                imageWithSystemSymbolName: symbol_name,
                 accessibilityDescription: std::ptr::null_mut::<AnyObject>()
             ];
             eprintln!("[clipmate] menubar: step 5.5 symbol image ptr={image:p}");
@@ -334,27 +352,51 @@ mod macos_impl {
             }
             let _: () = objc2::msg_send![menu, addItem: position_item];
 
-            // ---- 子菜单「背景」：8 个内置预设 + 自定义图片… + 清除背景 ----
+            // ---- 子菜单「背景」：动态列出背景文件夹内容 + 打开文件夹 + 选择文件… + 清除 ----
             // NSMenu submenu：alloc/init 一个独立菜单，addItem 把子项挂进去；
             // 再创建带 title 的父 NSMenuItem，setSubmenu: 关联。
             let bg_submenu: *mut AnyObject = objc2::msg_send![menu_cls, alloc];
             let bg_submenu: *mut AnyObject = objc2::msg_send![bg_submenu, init];
             let _: () = objc2::msg_send![bg_submenu, setAutoenablesItems: false];
 
-            // 预设 1..8（tag 100+i → preset:i+1）
-            let preset_titles = [
-                "1 · 黄昏天台",
-                "2 · 赛博夜都",
-                "3 · 和风庭院",
-                "4 · 星空原野",
-                "5 · 夏日海边",
-                "6 · 雪夜小镇",
-                "7 · 向日葵花田",
-                "8 · 雨夜街灯",
-            ];
-            for (i, title) in preset_titles.iter().enumerate() {
+            // 扫描背景文件夹（图片 + mp4/mov 视频），菜单启动时快照；点击回调按同序号重扫
+            let bg_files = crate::commands::scan_backgrounds(&app);
+            let cur_bg = app
+                .path()
+                .app_data_dir()
+                .ok()
+                .and_then(|d| crate::read_background_from_settings(&d))
+                .unwrap_or_default();
+
+            if bg_files.is_empty() {
+                // 空态提示（不可点）
+                let empty_title = nsstring("（背景文件夹为空）");
+                let empty_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+                let empty_item: *mut AnyObject = objc2::msg_send![
+                    empty_item,
+                    initWithTitle: empty_title,
+                    action: clicked_sel,
+                    keyEquivalent: nsstring("")
+                ];
+                let _: () = objc2::msg_send![empty_item, setEnabled: false];
+                let _: () = objc2::msg_send![bg_submenu, addItem: empty_item];
+                eprintln!(
+                    "[clipmate] backgrounds folder empty: {}",
+                    crate::commands::backgrounds_dir(&app).display()
+                );
+            }
+            for (i, (path, is_video)) in bg_files.iter().enumerate().take(20) {
                 let tag = 100 + i as isize;
-                let p_title = nsstring(title);
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("background");
+                let title = if *is_video {
+                    format!("{stem} · 视频")
+                } else {
+                    stem.to_string()
+                };
+                let p_title = nsstring(&title);
                 let p_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
                 let p_item: *mut AnyObject = objc2::msg_send![
                     p_item,
@@ -365,13 +407,9 @@ mod macos_impl {
                 let _: () = objc2::msg_send![p_item, setTarget: target];
                 let _: () = objc2::msg_send![p_item, setTag: tag];
                 let _: () = objc2::msg_send![p_item, setEnabled: true];
-                // 勾选态反映当前预设
-                if let Ok(dir) = app.path().app_data_dir() {
-                    let cur = crate::read_background_from_settings(&dir)
-                        .unwrap_or_default();
-                    if cur == format!("preset:{}", i + 1) {
-                        let _: () = objc2::msg_send![p_item, setState: 1isize];
-                    }
+                // 勾选态反映当前背景（settings 里存绝对路径）
+                if cur_bg == path.to_string_lossy() {
+                    let _: () = objc2::msg_send![p_item, setState: 1isize];
                 }
                 let _: () = objc2::msg_send![bg_submenu, addItem: p_item];
             }
@@ -380,8 +418,22 @@ mod macos_impl {
             let bg_sep: *mut AnyObject = objc2::msg_send![item_cls, separatorItem];
             let _: () = objc2::msg_send![bg_submenu, addItem: bg_sep];
 
-            // 自定义图片…（tag 7）
-            let setbg_title = nsstring("自定义图片…");
+            // 打开背景文件夹（tag 120）
+            let openbg_title = nsstring("打开背景文件夹");
+            let openbg_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
+            let openbg_item: *mut AnyObject = objc2::msg_send![
+                openbg_item,
+                initWithTitle: openbg_title,
+                action: clicked_sel,
+                keyEquivalent: nsstring("")
+            ];
+            let _: () = objc2::msg_send![openbg_item, setTarget: target];
+            let _: () = objc2::msg_send![openbg_item, setTag: 120isize];
+            let _: () = objc2::msg_send![openbg_item, setEnabled: true];
+            let _: () = objc2::msg_send![bg_submenu, addItem: openbg_item];
+
+            // 选择图片/视频…（tag 7）
+            let setbg_title = nsstring("选择图片/视频…");
             let setbg_item: *mut AnyObject = objc2::msg_send![item_cls, alloc];
             let setbg_item: *mut AnyObject = objc2::msg_send![
                 setbg_item,
@@ -476,72 +528,91 @@ mod windows_impl {
             None::<&str>,
         );
 
-        // 8 个预设菜单项（id = "bg1".."bg8"），先收集 vec 引用再传给 Submenu
-        let preset_titles = [
-            "1 · 黄昏天台",
-            "2 · 赛博夜都",
-            "3 · 和风庭院",
-            "4 · 星空原野",
-            "5 · 夏日海边",
-            "6 · 雪夜小镇",
-            "7 · 向日葵花田",
-            "8 · 雨夜街灯",
-        ];
-        let preset_items: Vec<Result<MenuItem<tauri::Wry>, _>> = (1..=8)
-            .map(|i| {
-                let id = format!("bg{i}");
-                MenuItem::with_id(
-                    &app,
-                    &id,
-                    preset_titles[i - 1],
-                    true,
-                    None::<&str>,
-                )
+        // 背景文件夹动态菜单项（id = "bgf{i}"，与点击回调同序号扫描）
+        let bg_files = crate::commands::scan_backgrounds(&app);
+        let file_items = bg_files
+            .iter()
+            .take(20)
+            .enumerate()
+            .map(|(i, (path, is_video))| {
+                let id = format!("bgf{i}");
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("background");
+                let title = if *is_video {
+                    format!("{stem} · 视频")
+                } else {
+                    stem.to_string()
+                };
+                MenuItem::with_id(&app, &id, title, true, None::<&str>)
             })
-            .collect();
-        let preset_refs: Vec<&MenuItem<tauri::Wry>> = match preset_items.iter().collect::<Result<Vec<_>, _>>() {
+            .collect::<Result<Vec<_>, _>>();
+        let file_items = match file_items {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("[clipmate] tray preset menu item create failed: {e}");
+                eprintln!("[clipmate] tray background file menu item create failed: {e}");
                 return;
             }
         };
-        let setbg = MenuItem::with_id(&app, "setbg", "自定义图片…", true, None::<&str>);
+        let openbg = MenuItem::with_id(&app, "bgopen", "打开背景文件夹", true, None::<&str>);
+        let setbg = MenuItem::with_id(&app, "setbg", "选择图片/视频…", true, None::<&str>);
         let clearbg = MenuItem::with_id(&app, "clearbg", "清除背景", true, None::<&str>);
 
-        let (show, theme, autostart, position, setbg, clearbg) = match (
+        let (show, theme, autostart, position, openbg, setbg, clearbg) = match (
             show,
             theme,
             autostart,
             position,
+            openbg,
             setbg,
             clearbg,
         ) {
-            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f)) => (a, b, c, d, e, f),
+            (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f), Ok(g)) => (a, b, c, d, e, f, g),
             (Err(e), ..)
             | (_, Err(e), ..)
             | (_, _, Err(e), ..)
             | (_, _, _, Err(e), ..)
             | (_, _, _, _, Err(e), ..)
-            | (_, _, _, _, _, Err(e)) => {
+            | (_, _, _, _, _, Err(e), ..)
+            | (_, _, _, _, _, _, Err(e)) => {
                 eprintln!("[clipmate] tray menu item create failed: {e}");
                 return;
             }
         };
 
-        // 背景子菜单：8 预设 + 自定义 + 清除
-        let mut bg_kids: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = Vec::new();
-        bg_kids.extend(preset_refs.iter().map(|m| m as &dyn tauri::menu::IsMenuItem<tauri::Wry>));
-        bg_kids.push(&setbg);
-        bg_kids.push(&clearbg);
-        let bg_submenu = Submenu::with_id(&app, "background", "背景", true, &bg_kids);
-        let bg_submenu = match bg_submenu {
+        // 背景子菜单：文件夹内容 + 分隔 + 打开文件夹 + 选择 + 清除
+        // 注意：tauri 2.11 的 Submenu::with_id 不收 items 参数，子项用 append_items 挂
+        let bg_submenu = match Submenu::with_id(&app, "background", "背景", true) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("[clipmate] tray background submenu create failed: {e}");
                 return;
             }
         };
+        {
+            let file_kids: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = file_items
+                .iter()
+                .map(|m| m as &dyn tauri::menu::IsMenuItem<tauri::Wry>)
+                .collect();
+            if let Err(e) = bg_submenu.append_items(&file_kids) {
+                eprintln!("[clipmate] tray background submenu append failed: {e}");
+                return;
+            }
+        }
+        if !file_items.is_empty() {
+            if let Ok(sep) = PredefinedMenuItem::separator(&app) {
+                let _ = bg_submenu.append(&sep);
+            }
+        }
+        {
+            let action_kids: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+                vec![&openbg, &setbg, &clearbg];
+            if let Err(e) = bg_submenu.append_items(&action_kids) {
+                eprintln!("[clipmate] tray background submenu append failed: {e}");
+                return;
+            }
+        }
 
         let menu = Menu::with_items(&app, &[&show, &theme, &autostart, &position, &bg_submenu]);
         let menu = match menu {
@@ -611,18 +682,31 @@ mod windows_impl {
                     let app2 = app.clone();
                     app.dialog()
                         .file()
-                        .add_filter("图片", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                        .add_filter(
+                            "图片/视频",
+                            &["png", "jpg", "jpeg", "gif", "webp", "bmp", "mp4", "mov", "m4v"],
+                        )
                         .pick_file(move |file| {
                             let Some(path) = file.and_then(|f| f.into_path().ok()) else {
                                 return;
                             };
-                            if let Ok(dir) = app2.path().app_data_dir() {
-                                crate::write_background_to_settings(
-                                    &dir,
-                                    Some(&path.to_string_lossy()),
-                                );
-                                let _ = app2.emit("background-changed", ());
-                                eprintln!("[clipmate] background set: {}", path.display());
+                            match crate::commands::import_background(&app2, &path) {
+                                Some(dst) => {
+                                    if let Ok(dir) = app2.path().app_data_dir() {
+                                        crate::write_background_to_settings(
+                                            &dir,
+                                            Some(&dst.to_string_lossy()),
+                                        );
+                                        let _ = app2.emit("background-changed", ());
+                                        eprintln!("[clipmate] background set: {}", dst.display());
+                                    }
+                                }
+                                None => {
+                                    eprintln!(
+                                        "[clipmate] background import failed: {}",
+                                        path.display()
+                                    )
+                                }
                             }
                         });
                 }
@@ -633,14 +717,24 @@ mod windows_impl {
                         eprintln!("[clipmate] background cleared");
                     }
                 }
-                id if id.starts_with("bg") && id.len() == 3 => {
-                    // 预设：id = "bg1".."bg8"
-                    if let Ok(n) = id[2..].parse::<u32>() {
-                        if (1..=8).contains(&n) {
+                "bgopen" => {
+                    // 打开背景文件夹（资源管理器）
+                    let dir = crate::commands::backgrounds_dir(app);
+                    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+                    eprintln!("[clipmate] open backgrounds dir: {}", dir.display());
+                }
+                id if id.starts_with("bgf") => {
+                    // 背景文件夹内第 i 个媒体文件（与菜单构建时同序号扫描）
+                    if let Ok(n) = id[3..].parse::<usize>() {
+                        let files = crate::commands::scan_backgrounds(app);
+                        if let Some((path, _)) = files.get(n) {
                             if let Ok(dir) = app.path().app_data_dir() {
-                                crate::write_background_to_settings(&dir, Some(&format!("preset:{n}")));
+                                crate::write_background_to_settings(
+                                    &dir,
+                                    Some(&path.to_string_lossy()),
+                                );
                                 let _ = app.emit("background-changed", ());
-                                eprintln!("[clipmate] background preset:{n}");
+                                eprintln!("[clipmate] background file: {}", path.display());
                             }
                         }
                     }

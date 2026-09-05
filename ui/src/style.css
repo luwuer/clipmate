@@ -109,9 +109,20 @@ body {
   -webkit-transform: translateZ(0);
 }
 
-/* ---- 自定义背景图：行内 backgroundImage 直接铺在 .panel 上；::after 做压暗层 ---- */
-/* 注意：CSS 变量不能存 url()（var(--x) 不会展开 url(...)），所以图片只能走
-   行内 backgroundImage（Vue :style 绑定），不能走 :root CSS 变量。 */
+/* ---- 自定义背景：<img>/<video> 元素铺满 panel（z-index:-2）；::after 做压暗层（z-index:-1）----
+   图片走 <img> 而非 CSS backgroundImage：gif/webp 动图在元素里动画更可靠；
+   视频只能走 <video>（CSS background 不支持）。层级：panel 背景 → 媒体(-2) → 压暗(-1) → 内容。 */
+.bg-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -2;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
 .panel.has-bg::after {
   content: "";
   position: absolute;
