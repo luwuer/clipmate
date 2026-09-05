@@ -3,23 +3,7 @@
 一个极简的**跨平台剪贴板历史工具**（macOS / Windows）：按下热键唤起面板，方向键选择，回车粘贴回当前应用。
 
 > 📥 **下载安装**：[GitHub Releases](https://github.com/luwuer/clipmate/releases/latest)（macOS Universal DMG / Windows NSIS 安装包）· [产品主页](https://luwuer.github.io/clipmate/)
-> 🏗️ 每次打 tag `v*` 由 [GitHub Actions](.github/workflows/build.yml) 自动构建双平台并发布。
 
-> 双平台均为原生实现：macOS 用 NSPanel / CGEvent / AX API，Windows 用 SendInput / 系统托盘 / 注册表自启，差异详见[平台差异](#平台差异)。不上架 App Store 的原因见 [RELEASING.md](RELEASING.md)。
-
-## 目录
-
-- [特性](#特性)
-- [效果预览](#效果预览)
-- [快速开始](#快速开始)
-- [键盘操作](#键盘操作)
-- [菜单栏与托盘](#菜单栏与托盘)
-- [配置 settingsjson](#配置settingsjson)
-- [首次使用授权](#首次使用授权)
-- [行为细节](#行为细节)
-- [平台差异](#平台差异)
-- [发布打包](#发布打包)
-- [项目结构](#项目结构)
 
 ## 特性
 
@@ -35,19 +19,24 @@
 
 ## 效果预览
 
-```
-╭──────────────────────────────────╮
-│ ClipMate                          │  ← 可拖拽标题栏
-│ 搜索剪贴板历史…              ⌫   │  ← 搜索框 + 清空
-├──────────────────────────────────┤
-│ 📌 常用地址（置顶）                │
-│ ✓ https://example.com/api/v1/... │  ← 多选中的条目带 ✓
-│ 订单号 #2026-0818-0001            │
-│ hello clipmate 第一条              │
-├──────────────────────────────────┤
-│ ↑↓ 选择  ⇧/⌘ 多选  ⏎ 粘贴  ⌘P 置顶 │  ← 快捷键提示栏
-╰──────────────────────────────────╯
-```
+![ClipMate 面板截图](docs/clipmate-screenshot.png)
+
+## 目录
+
+- [特性](#特性)
+- [快速开始](#快速开始)
+- [键盘操作](#键盘操作)
+- [菜单栏与托盘](#菜单栏与托盘)
+- [配置（settings.json）](#配置settingsjson)
+- [首次使用：授权](#首次使用授权)
+- [行为细节](#行为细节)
+- [平台差异](#平台差异)
+- [发布打包](#发布打包)
+  - [macOS：正式发布（Developer ID 签名 + 公证）](#macos正式发布developer-id-签名--公证)
+  - [macOS：本地打包 dmg（无开发者账号，ad-hoc 签名）](#macos本地打包-dmg无开发者账号ad-hoc-签名)
+  - [Windows：打包 NSIS 安装程序](#windows打包-nsis-安装程序)
+- [项目结构](#项目结构)
+- [版本历史](#版本历史)
 
 ## 快速开始
 
