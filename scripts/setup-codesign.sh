@@ -37,7 +37,11 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -addext "extendedKeyUsage=codeSigning" 2>&1 | grep -v '^+\{3,\}$' || true
 
 echo "→ 导出 p12（导入钥匙串用，密码: ${P12_PASS}）…"
-openssl pkcs12 -export -out "$P12" -inkey "$KEY" -in "$CRT" -passout "pass:$P12_PASS"
+# -legacy：OpenSSL 3.x 默认用 AES-256-CBC/PBKDF2 导出，macOS security import 会报
+# "MAC verification failed during PKCS12 import"。-legacy 走 RC2/SHA1 老算法，macOS 可读。
+# 若本机 openssl 不支持 -legacy（老版本 LibreSSL 自带支持），去掉该参数即可。
+openssl pkcs12 -export -legacy -out "$P12" -inkey "$KEY" -in "$CRT" -passout "pass:$P12_PASS" \
+  || openssl pkcs12 -export -out "$P12" -inkey "$KEY" -in "$CRT" -passout "pass:$P12_PASS"
 
 echo "→ 证书信息："
 openssl x509 -in "$CRT" -noout -subject -dates -ext extendedKeyUsage
@@ -56,7 +60,12 @@ echo "    ${KEY} / ${P12}（私钥，已被 .gitignore 排除）"
 echo ""
 echo "═══ 接下来需要你手动执行一次（会弹 GUI 密码框）═══"
 echo ""
+echo "  # 1. 导入身份（若 p12 是老版本脚本生成的，先加 -legacy 重新导出再导入）"
 echo "  security import \"$P12\" -k ~/Library/Keychains/login.keychain-db -P \"$P12_PASS\" -T /usr/bin/codesign"
+echo ""
+echo "  # 2. 设置用户级 codeSign 信任（自签证书默认 CSSMERR_TP_NOT_TRUSTED，不设信任"
+echo "  #    find-identity -v 会显示 0 valid identities，codesign 找不到身份）"
+echo "  security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db \"$CRT\""
 echo ""
 echo "导入后验证（应能看到一行 \"$CN\"）："
 echo ""
